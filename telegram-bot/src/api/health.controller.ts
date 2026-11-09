@@ -2,8 +2,10 @@ import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/co
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { BossService } from '../jobs/boss.service';
+import { Public } from './auth/guards';
 
 /** Проверяет и базу, и очередь: без pg-boss напоминания молча не уходят. */
+@Public()
 @Controller()
 export class HealthController {
   constructor(

@@ -1,7 +1,9 @@
 import 'reflect-metadata';
+import fastifyCookie from '@fastify/cookie';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { BotService } from './bot/bot.service';
 import { loadEnv } from './config/env';
@@ -15,9 +17,22 @@ async function bootstrap(): Promise<void> {
     logger: ['error', 'warn', 'log'],
   });
 
+  // Сессия админ-панели лежит в httpOnly-куке.
+  await app.register(fastifyCookie, { secret: cfg.SESSION_SECRET });
+
   if (cfg.ADMIN_ORIGIN) {
     app.enableCors({ origin: cfg.ADMIN_ORIGIN, credentials: true });
   }
+
+  const doc = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder()
+      .setTitle('Janykadam — админ-API')
+      .setDescription('Бэкенд панели марафонов. Вход через Telegram Login, сессия в httpOnly-куке.')
+      .setVersion('0.1.0')
+      .build(),
+  );
+  SwaggerModule.setup('api/docs', app, doc);
 
   const bot = app.get(BotService);
 

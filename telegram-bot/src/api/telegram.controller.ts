@@ -6,6 +6,7 @@ import { BotService } from '../bot/bot.service';
 import { env } from '../config/env';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { telegramUpdates } from '../db/schema';
+import { Public } from './auth/guards';
 
 /**
  * Приём вебхука.
@@ -13,6 +14,7 @@ import { telegramUpdates } from '../db/schema';
  * Проверяем секретный заголовок и отсеиваем повторные update_id: Telegram
  * переотправляет апдейт, если не дождался ответа, а отчёт дублировать нельзя.
  */
+@Public()
 @Controller('telegram')
 export class TelegramController {
   private readonly log = new Logger(TelegramController.name);

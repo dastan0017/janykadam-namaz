@@ -242,7 +242,7 @@ export const excusedDays = pgTable(
   {
     enrollmentId: uuid('enrollment_id').notNull().references(() => enrollments.id, { onDelete: 'cascade' }),
     dayKey: date('day_key').notNull(),
-    markedBy: uuid('marked_by').references(() => adminUsers.id),
+    markedBy: uuid('marked_by').references(() => adminUsers.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.enrollmentId, t.dayKey] })],
@@ -256,7 +256,7 @@ export const pointsLedger = pgTable(
     enrollmentId: uuid('enrollment_id').notNull().references(() => enrollments.id, { onDelete: 'cascade' }),
     delta: integer('delta').notNull(),
     reason: text('reason').notNull(),
-    actorAdminId: uuid('actor_admin_id').references(() => adminUsers.id),
+    actorAdminId: uuid('actor_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
     reportId: uuid('report_id').references(() => reports.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -316,7 +316,7 @@ export const broadcasts = pgTable('broadcasts', {
   schedule: jsonb('schedule').$type<Record<string, unknown>>().notNull(),
   status: broadcastStatus('status').notNull().default('scheduled'),
   totals: jsonb('totals').$type<Record<string, number>>().notNull().default({}),
-  createdBy: uuid('created_by').references(() => adminUsers.id),
+  createdBy: uuid('created_by').references(() => adminUsers.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -411,7 +411,7 @@ export const auditLog = pgTable(
   'audit_log',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    actorAdminId: uuid('actor_admin_id').references(() => adminUsers.id),
+    actorAdminId: uuid('actor_admin_id').references(() => adminUsers.id, { onDelete: 'set null' }),
     actorLabel: text('actor_label').notNull().default(''),
     action: text('action').notNull(),
     entity: text('entity').notNull(),

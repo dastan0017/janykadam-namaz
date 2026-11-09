@@ -25,6 +25,7 @@
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
+    "@fastify/static": "^10.1.10",
     "@grammyjs/auto-retry": "^2.0.2",
     "@grammyjs/runner": "^2.0.3",
     "@nestjs/common": "^11.2.9",

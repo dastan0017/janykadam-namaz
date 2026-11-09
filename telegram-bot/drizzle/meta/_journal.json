@@ -15,6 +15,13 @@
       "when": 1794246734897,
       "tag": "0001_overjoyed_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794249321519,
+      "tag": "0002_tough_malcolm_colcord",
+      "breakpoints": true
     }
   ]
 }
