@@ -5,6 +5,8 @@ import { normalizeForSearch } from '../domain/normalize';
 export interface GeoHit {
   geonameid: number;
   name: string;
+  /** Сырой список альтернативных названий: из него берём кириллическую форму. */
+  alternatenames: string;
   lat: number;
   lng: number;
   countryCode: string;
@@ -17,6 +19,7 @@ export interface GeoHit {
 interface GeoRow extends Record<string, unknown> {
   geonameid: number;
   name: string;
+  alternatenames: string;
   lat: string | number;
   lng: string | number;
   countryCode: string;
@@ -45,6 +48,7 @@ export async function searchCities(db: NodePgDatabase<Record<string, unknown>>, 
     WITH scored AS (
       SELECT geonameid,
              name,
+             alternatenames,
              lat,
              lng,
              country_code AS "countryCode",
@@ -63,7 +67,7 @@ export async function searchCities(db: NodePgDatabase<Record<string, unknown>>, 
       WHERE search_text % ${q}
          OR search_text LIKE ${`%${q}%`}
     )
-    SELECT geonameid, name, lat, lng, "countryCode", timezone, population, similarity
+    SELECT geonameid, name, alternatenames, lat, lng, "countryCode", timezone, population, similarity
     FROM scored
     ORDER BY
       tier DESC,
@@ -77,6 +81,7 @@ export async function searchCities(db: NodePgDatabase<Record<string, unknown>>, 
   return list.map((r) => ({
     geonameid: Number(r.geonameid),
     name: r.name,
+    alternatenames: r.alternatenames ?? '',
     lat: Number(r.lat),
     lng: Number(r.lng),
     countryCode: r.countryCode,

@@ -34,6 +34,31 @@ export function normalizeForSearch(input: string): string {
   return out.replace(/\s+/g, ' ').trim();
 }
 
+const CYRILLIC_RE = /[Ѐ-ӿ]/;
+
+/**
+ * Выбирает, как показать город участнице.
+ *
+ * GeoNames хранит основное имя латиницей («Talas»), а кириллические формы лежат
+ * среди alternatenames без пометок языка. Берём кириллический вариант, только
+ * если он доказуемо то же самое слово: совпадает после свёртки с запросом
+ * участницы или с основным именем. Иначе показываем как есть.
+ */
+export function displayCityName(row: { name: string; alternatenames: string }, query?: string): string {
+  if (CYRILLIC_RE.test(row.name)) return row.name;
+
+  const alternates = row.alternatenames.split(',').map((a) => a.trim()).filter(Boolean);
+  const cyrillic = alternates.filter((a) => CYRILLIC_RE.test(a));
+  if (cyrillic.length === 0) return row.name;
+
+  const targets = new Set<string>();
+  if (query) targets.add(normalizeForSearch(query));
+  targets.add(normalizeForSearch(row.name));
+
+  const match = cyrillic.find((a) => targets.has(normalizeForSearch(a)));
+  return match ?? row.name;
+}
+
 /**
  * Нормализованное основное имя города. Точное совпадение с ним — самый сильный
  * сигнал: в alternatenames у крупных городов попадаются посторонние формы,
