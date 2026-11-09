@@ -24,8 +24,14 @@ async function bootstrap(): Promise<void> {
   await app.listen({ port: cfg.PORT, host: cfg.HOST });
   log.log(`HTTP слушает ${cfg.HOST}:${cfg.PORT}`);
 
-  if (cfg.BOT_MODE === 'webhook') await bot.setupWebhook();
-  else await bot.startPolling();
+  // Неверный токен не должен ронять HTTP: админ-панель и /healthz обязаны
+  // остаться доступными, чтобы было видно, что именно сломано.
+  try {
+    if (cfg.BOT_MODE === 'webhook') await bot.setupWebhook();
+    else await bot.startPolling();
+  } catch (err) {
+    log.error(`Бот не запустился: ${String(err)}. HTTP продолжает работать.`);
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     log.log(`${signal}: останавливаюсь`);

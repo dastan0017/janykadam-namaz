@@ -157,9 +157,11 @@ export class BotService implements OnModuleDestroy {
   }
 
   async startPolling(): Promise<void> {
+    // Проверяем токен до запуска раннера: иначе ошибка всплывёт асинхронно и уронит процесс.
+    await this.bot.init();
     await this.applyBotProfile();
     this.runner = run(this.bot);
-    this.log.log('Бот запущен в режиме long polling');
+    this.log.log(`Бот запущен в режиме long polling: @${this.bot.botInfo.username}`);
   }
 
   async setupWebhook(): Promise<void> {

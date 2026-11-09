@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
-    "start:dev": "tsx watch src/main.ts",
+    "start:dev": "node --watch dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -19,7 +19,8 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/db/seed.ts",
     "import:geonames": "tsx src/scripts/import-geonames.ts",
-    "compare:aladhan": "tsx src/scripts/compare-aladhan.ts"
+    "compare:aladhan": "tsx src/scripts/compare-aladhan.ts",
+    "build:watch": "tsc -p tsconfig.build.json --watch --preserveWatchOutput"
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
