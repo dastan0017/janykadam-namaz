@@ -914,6 +914,32 @@ button:focus-visible,
 }
 
 /* Переключатель страниц под таблицей */
+/* Полоса сохранения: липнет к низу области экрана, пока форма не сохранена */
+.savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  box-shadow: 0 10px 28px rgba(46, 43, 37, 0.14);
+  font-size: 13px;
+}
+.savebar-hint {
+  padding: 0;
+}
+@media (max-width: 760px) {
+  .savebar-hint {
+    display: none;
+  }
+}
+
 .pager {
   display: flex;
   align-items: center;

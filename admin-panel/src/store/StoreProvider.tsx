@@ -3,16 +3,19 @@ import { ApiError, USE_SEED, setUnauthorizedHandler } from '../api/client';
 import { api } from '../api/endpoints';
 import { loadGlobal, loadMarathon, loadParts, type GlobalPart } from '../api/load';
 import {
-  marathonPatch, optionPatch, parseCommands, questionPatch, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
+  botPatch, marathonPatch, optionPatch, questionPatch, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
 } from '../api/map';
 import { GLOBAL, NAMAZ } from '../data/constants';
 import { initialState } from '../data/initial';
 import { seed } from '../data/seed';
 import { currentData, currentMarathon, filteredParts, segments } from '../lib/derive';
+import { changedKeys, isDirty, snapshot } from '../lib/edits';
 import { plural, slugify } from '../lib/format';
 import { buildPath, currentPath, parseRoute, type Route } from '../lib/route';
 import { localDate, tzLabel } from '../lib/time';
-import type { AppState, Marathon, MarathonData, QuestionType, Screen } from '../types';
+import type {
+  AppState, BotSettings, BotText, EditKind, EditState, Marathon, MarathonData, QuestionType, Screen, Snapshot,
+} from '../types';
 import { ActionsCtx, StateCtx, type Actions, type Patch, type Updater } from './context';
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -86,7 +89,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(initialState);
   const toastTimer = useRef<number | undefined>(undefined);
   const pollTimer = useRef<number | undefined>(undefined);
-  const debounced = useRef(new Map<string, { id: number; fn: () => void }>());
   // Текущее состояние для эффекта обновления: он зависит только от экрана.
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -101,15 +103,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(toastTimer.current);
     setState((s) => ({ ...s, toast: msg }));
     toastTimer.current = window.setTimeout(() => setState((s) => ({ ...s, toast: null })), 3600);
-  }, []);
-
-  /** Досылает отложенные правки сейчас: иначе ответ сервера затрёт их. */
-  const flushPending = useCallback(() => {
-    for (const [key, pending] of debounced.current) {
-      window.clearTimeout(pending.id);
-      debounced.current.delete(key);
-      pending.fn();
-    }
   }, []);
 
   /* ───────── загрузка ───────── */
@@ -128,6 +121,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       loaded: s.loaded.includes(id) ? s.loaded : [...s.loaded, id],
       loading: false,
     }));
+  }, []);
+
+  /**
+   * Возврат формы к значениям до правки. Варианты ответа, которых уже нет,
+   * не воскрешаем: их удаление — отдельное действие, оно уже сохранено.
+   */
+  const undoEdit = useCallback(() => {
+    setState((s) => {
+      const e = s.edit;
+      if (!e) return s;
+      const base = e.base;
+
+      if (e.kind === 'bot') return { ...s, bot: { ...s.bot, ...(base as unknown as Partial<BotSettings>) }, edit: null };
+      if (e.kind === 'text') {
+        return { ...s, texts: s.texts.map((x) => (x.key === e.id ? { ...x, ...(base as unknown as Partial<BotText>) } : x)), edit: null };
+      }
+      if (e.kind === 'marathon') {
+        return { ...s, marathons: s.marathons.map((m) => (m.id === e.id ? { ...m, ...(base as unknown as Partial<Marathon>) } : m)), edit: null };
+      }
+
+      const d = clone(s.data);
+      const topics = (s.mid ? d[s.mid]?.topics : undefined) ?? [];
+      if (e.kind === 'topic') {
+        const topic = topics.find((x) => x.id === e.id);
+        if (topic) Object.assign(topic, base);
+        return { ...s, data: d, edit: null };
+      }
+
+      const q = topics.flatMap((x) => x.questions).find((x) => x.id === e.id);
+      for (const [k, v] of Object.entries(base)) {
+        if (!q) break;
+        if (!k.startsWith('o:')) {
+          (q as unknown as Record<string, unknown>)[k] = v;
+          continue;
+        }
+        const [, oid, field] = k.split(':');
+        const o = q.options.find((x) => x.id === oid);
+        if (o) (o as unknown as Record<string, unknown>)[field] = v;
+      }
+      return { ...s, data: d, edit: null };
+    });
   }, []);
 
   const bootstrap = useCallback(async () => {
@@ -218,16 +252,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [state.drawerId, state.mid, state.data]);
 
   useEffect(() => {
-    const timers = debounced.current;
     setUnauthorizedHandler(() => setState((s) => ({ ...s, auth: 'anonymous', me: null })));
     void bootstrap();
     return () => {
       setUnauthorizedHandler(null);
       window.clearTimeout(toastTimer.current);
       window.clearInterval(pollTimer.current);
-      for (const t of timers.values()) window.clearTimeout(t.id);
     };
   }, [bootstrap]);
+
+  /** Закрытие вкладки с несохранённой формой — через вопрос браузера. */
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (isDirty(stateRef.current)) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, []);
 
   /** Адрес следует за состоянием: каждый раздел виден в строке браузера. */
   const path = pathOf(state);
@@ -243,17 +284,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const s = stateRef.current;
       if (s.auth !== 'ready') return;
 
-      const nav = navOf(parseRoute(window.location.pathname, window.location.search), s.marathons, s.mid);
-      // Непонятный путь не должен остаться в строке браузера: показываем список
-      // марафонов — пусть и адрес будет его.
-      const canonical = pathOf({ ...nav, marathons: s.marathons });
-      if (canonical !== currentPath()) window.history.replaceState(null, '', canonical);
+      const apply = () => {
+        const nav = navOf(parseRoute(window.location.pathname, window.location.search), s.marathons, s.mid);
+        // Непонятный путь не должен остаться в строке браузера: показываем список
+        // марафонов — пусть и адрес будет его.
+        const canonical = pathOf({ ...nav, marathons: s.marathons });
+        if (canonical !== currentPath()) window.history.replaceState(null, '', canonical);
 
-      setState((prev) => ({ ...prev, ...nav, drawerId: null, navOpen: false }));
+        setState((prev) => ({ ...prev, ...nav, drawerId: null, navOpen: false }));
+      };
+
+      if (!isDirty(s)) {
+        apply();
+        return;
+      }
+
+      // «Назад» с несохранённой формой: возвращаем адрес и спрашиваем. После
+      // отмены правок тот же «назад» пройдёт уже без вопроса.
+      window.history.pushState(null, '', pathOf(s));
+      setState((prev) => ({
+        ...prev,
+        confirm: {
+          title: 'Уйти без сохранения?',
+          body: 'Правки в форме не сохранены. Если уйти, они пропадут.',
+          ok: 'Уйти без сохранения',
+          danger: true,
+          onOk: () => {
+            setState((x) => ({ ...x, confirm: null }));
+            undoEdit();
+            window.history.back();
+          },
+        },
+      }));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [undoEdit]);
 
   /**
    * Обновление при открытии экрана. Срабатывает на смену экрана или марафона
@@ -272,10 +338,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // нет: иначе переключение марафона с общего экрана оставит пустоту.
     const withData = !!mid && (parts.includes('data') || !loaded.includes(mid));
 
+    // Несохранённых правок здесь уже нет: уход с формы их сохраняет или
+    // отменяет — иначе ответ сервера затёр бы их молча.
     let alive = true;
     void (async () => {
-      // Несохранённые правки — до запроса: ответ сервера затёр бы их.
-      flushPending();
       try {
         await Promise.all([
           globals.length
@@ -295,7 +361,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [refreshKey, state.auth, flushPending, reloadMarathon, toast]);
+  }, [refreshKey, state.auth, reloadMarathon, toast]);
 
   const actions = useMemo<Actions>(() => {
     /** Правка данных марафонов: клонирует data и marathons, чтобы мутировать их свободно. */
@@ -325,27 +391,148 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    /** Отложенный запрос: текстовые поля правятся посимвольно, а сохранять надо раз. */
-    const later = (key: string, fn: () => void, ms = 600) => {
-      const prev = debounced.current.get(key);
-      if (prev) window.clearTimeout(prev.id);
-      const id = window.setTimeout(() => {
-        debounced.current.delete(key);
-        fn();
-      }, ms);
-      debounced.current.set(key, { id, fn });
-    };
-
-    const go: Actions['go'] = (screen, extra) => set({ screen, navOpen: false, ...extra });
-
     const confirmAction = (title: string, body: string, ok: string, danger: boolean, onOk: () => void) =>
       set({ confirm: { title, body, ok, danger, onOk } });
+
+    /* ───────── несохранённые правки формы ───────── */
+
+    /**
+     * Поля формы меняют состояние сразу, а на бэкенд уходят по кнопке
+     * «Сохранить». Перед первой правкой снимается снимок значений: по нему
+     * считается тело запроса и по нему же работает «Отменить».
+     */
+    const startEdit = (s: AppState, kind: EditKind, id: string): Patch => {
+      if (s.edit && s.edit.kind === kind && s.edit.id === id) return {};
+      const base = snapshot(s, kind, id);
+      return base ? { edit: { kind, id, base, saving: false } } : {};
+    };
+
+    const merge = (keys: string[], one: (k: string) => Record<string, unknown> | null) => {
+      const body: Record<string, unknown> = {};
+      for (const k of keys) Object.assign(body, one(k) ?? {});
+      return Object.keys(body).length ? body : null;
+    };
+
+    /** Правки формы — в запросы: у вопроса их два, у остальных форм один. */
+    const sendEdit = async (e: EditState, now: Snapshot, keys: string[]) => {
+      if (e.kind === 'marathon') {
+        const body = merge(keys, (k) => marathonPatch(k, now[k]));
+        if (body) await api.patchMarathon(e.id, body);
+        return;
+      }
+      if (e.kind === 'topic') {
+        // Пустые баллы и незаполненное окно на бэкенд не отправляются: лучше
+        // сказать об этом, чем молча оставить на экране несохранённое поле.
+        const bad = keys.filter((k) => !topicPatch(k, now[k]));
+        if (bad.length) {
+          throw new Error(bad.includes('points') ? 'Баллы не заданы — тема не сохранена' : 'Окно сдачи заполнено не до конца — тема не сохранена');
+        }
+        const body = merge(keys, (k) => topicPatch(k, now[k]));
+        if (body) await api.patchTopic(e.id, body);
+        return;
+      }
+      if (e.kind === 'bot') {
+        const body = merge(keys, (k) => botPatch(k, now[k]));
+        if (body) await api.patchBotSettings(body);
+        return;
+      }
+      if (e.kind === 'text') {
+        const body = merge(keys, (k) => ({ [k]: String(now[k]) }));
+        if (body) await api.patchBotText(e.id, body);
+        return;
+      }
+
+      // Вопрос и его варианты ответа — одна форма, но разные ручки.
+      const qBody = merge(keys.filter((k) => !k.startsWith('o:')), (k) => questionPatch(k, now[k]));
+      const byOption = new Map<string, Record<string, unknown>>();
+      for (const k of keys) {
+        if (!k.startsWith('o:')) continue;
+        const [, oid, field] = k.split(':');
+        const patch = optionPatch(field as 'kg' | 'ru' | 'pts', now[k] as string | number);
+        byOption.set(oid, { ...(byOption.get(oid) ?? {}), ...patch });
+      }
+
+      await Promise.all([
+        qBody ? api.patchQuestion(e.id, qBody) : null,
+        ...[...byOption].map(([oid, body]) => api.patchOption(oid, body)),
+      ]);
+    };
+
+    /**
+     * Сохранение формы. `false` — не прошло; правки остаются на экране, чтобы
+     * их можно было поправить и отправить снова, а не набирать заново.
+     */
+    const saveEdit = async (quiet = false): Promise<boolean> => {
+      const s = stateRef.current;
+      const e = s.edit;
+      const now = e ? snapshot(s, e.kind, e.id) : null;
+      const keys = e && now ? changedKeys(e.base, now) : [];
+
+      if (!e || !now || keys.length === 0) {
+        if (e) setState((x) => ({ ...x, edit: null }));
+        return true;
+      }
+
+      setState((x) => ({ ...x, edit: x.edit ? { ...x.edit, saving: true } : null }));
+      try {
+        await sendEdit(e, now, keys);
+        setState((x) => ({ ...x, edit: null }));
+        if (!quiet) toast('Сохранено');
+        return true;
+      } catch (err) {
+        setState((x) => ({ ...x, edit: x.edit ? { ...x.edit, saving: false } : null }));
+        toast(errorText(err));
+        return false;
+      }
+    };
+
+    /**
+     * Добавить, удалить, переставить — действия сразу: они перезагружают
+     * данные, и несохранённую правку формы сначала надо дослать.
+     */
+    const afterSave = (fn: () => void) => {
+      void (async () => {
+        if (await saveEdit(true)) fn();
+      })();
+    };
+
+    /** Перед удалением: правки удаляемого выбрасываем, чужие — досылаем. */
+    const beforeDelete = (id: string, fn: () => void) => {
+      const e = stateRef.current.edit;
+      if (e && e.id === id) {
+        setState((x) => ({ ...x, edit: null }));
+        fn();
+        return;
+      }
+      afterSave(fn);
+    };
+
+    /** Уход с формы с несохранёнными правками: спрашиваем, а не теряем молча. */
+    const guard = (leave: () => void) => {
+      if (!isDirty(stateRef.current)) {
+        leave();
+        return;
+      }
+      confirmAction('Уйти без сохранения?', 'Правки в форме не сохранены. Если уйти, они пропадут.', 'Уйти без сохранения', true, () => {
+        set({ confirm: null });
+        undoEdit();
+        leave();
+      });
+    };
+
+    const go: Actions['go'] = (screen, extra) => guard(() => set({ screen, navOpen: false, ...extra }));
 
     return {
       set,
       go,
       toast,
       setRoleView: (role) => set(role === 'curator' ? { role, drawerId: null, invite: null } : { role }),
+
+      /* ───────── форма ───────── */
+
+      saveEdit: () => void saveEdit(),
+      undoEdit,
+      leaveForm: (then) => guard(then),
 
       /* ───────── вход ───────── */
 
@@ -366,7 +553,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       /* ───────── марафоны ───────── */
 
-      switchM: (id) => {
+      switchM: (id) =>
+        guard(() => {
         // Загрузку берёт на себя эффект обновления ниже: он всё равно сходит
         // за данными при смене марафона, и два запроса подряд не нужны.
         set((s) => ({
@@ -379,7 +567,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // С общих экранов переключение марафона не уводит.
           screen: GLOBAL.includes(s.screen) ? s.screen : 'overview',
         }));
-      },
+        }),
 
       duplicate: (id) => {
         const src = state.marathons.find((m) => m.id === id);
@@ -471,9 +659,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         mut((_d, s, ms) => {
           const m = ms.find((x) => x.id === s.mid);
           if (m) (m[k] as Marathon[typeof k]) = v;
+          return startEdit(s, 'marathon', mid);
         });
-        const body = marathonPatch(k, v);
-        if (body) later(`marathon:${mid}:${k}`, () => void call(() => api.patchMarathon(mid, body), { reload: 'global' }));
       },
 
       launch: () => {
@@ -494,17 +681,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setT: (k, v) => {
         const topicId = state.topicId;
-        const mid = state.mid;
-        if (!topicId || !mid) return;
+        if (!topicId || !state.mid) return;
         mut((d, s) => {
           const t = s.mid ? d[s.mid].topics.find((x) => x.id === s.topicId) : undefined;
           if (t) (t as unknown as Record<string, unknown>)[k] = v;
+          return startEdit(s, 'topic', topicId);
         });
-        const body = topicPatch(k, v);
-        if (body) later(`topic:${topicId}:${k}`, () => void call(() => api.patchTopic(topicId, body), { reload: mid }));
       },
 
-      toggleTopic: (id) => {
+      toggleTopic: (id) =>
+        afterSave(() => {
         const ns = NAMAZ.find((x) => x.id === id);
         const own = currentData(state).topics.find((x) => x.id === id);
         if (!ns && !own) return;
@@ -564,9 +750,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           mut((d, s) => applyLocal(d, s));
           void save(false);
         }
-      },
+        }),
 
-      moveTopic: (id, dir) => {
+      moveTopic: (id, dir) =>
+        afterSave(() => {
         const mid = state.mid;
         if (!mid) return;
         mut((d, s) => {
@@ -578,9 +765,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           [a[i], a[j]] = [a[j], a[i]];
           void call(() => api.reorderTopics(mid, a.map((t) => t.id)), { reload: mid });
         });
-      },
+        }),
 
-      addTopic: () => {
+      addTopic: () =>
+        afterSave(() => {
         const mid = state.mid;
         if (!mid) return;
         const pts = currentMarathon(state)?.pointsDefault ?? 5;
@@ -607,7 +795,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             toast(errorText(err));
           }
         })();
-      },
+        }),
 
       deleteTopic: (id) => {
         const t = currentData(state).topics.find((x) => x.id === id);
@@ -618,14 +806,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Удалятся вопросы и варианты ответов. Уже принятые отчёты и баллы по теме сохранятся в истории участниц.',
           'Удалить тему',
           true,
-          () => {
+          () =>
+            beforeDelete(id, () => {
             mut((d, s) => {
               if (!s.mid) return;
               d[s.mid].topics = d[s.mid].topics.filter((x) => x.id !== id);
               return { confirm: null, screen: 'topics', topicId: null };
             });
             void call(() => api.deleteTopic(id), { reload: mid });
-          },
+            }),
         );
       },
 
@@ -636,35 +825,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const mid = state.mid;
         if (!qId || !mid) return;
 
+        if (k === 'type') {
+          // Смена типа переписывает варианты на бэкенде: у шкалы и да/нет надписи
+          // заданы типом. Поэтому она применяется сразу, а ответ сервера
+          // забирается целиком — угадать новые варианты панель не может.
+          const body = questionPatch('type', v);
+          if (!body) return;
+          afterSave(() => {
+            void (async () => {
+              try {
+                await api.patchQuestion(qId, body);
+                await reloadMarathon(mid);
+                void (v as QuestionType);
+              } catch (err) {
+                toast(errorText(err));
+                void reloadMarathon(mid).catch(() => {});
+              }
+            })();
+          });
+          return;
+        }
+
         mut((d, s) => {
           if (!s.mid) return;
           const q = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((x) => x.id === s.qId);
           if (!q) return;
           (q as unknown as Record<string, unknown>)[k] = v;
+          return startEdit(s, 'question', qId);
         });
-
-        const body = questionPatch(k as string, v);
-        if (!body) return;
-
-        if (k === 'type') {
-          // Смена типа переписывает варианты на бэкенде: у шкалы и да/нет надписи
-          // заданы типом. Поэтому ответ сервера забираем целиком, а не угадываем.
-          void (async () => {
-            try {
-              await api.patchQuestion(qId, body);
-              await reloadMarathon(mid);
-              void (v as QuestionType);
-            } catch (err) {
-              toast(errorText(err));
-              void reloadMarathon(mid).catch(() => {});
-            }
-          })();
-          return;
-        }
-        later(`question:${qId}:${String(k)}`, () => void call(() => api.patchQuestion(qId, body), { reload: mid }));
       },
 
-      addQ: () => {
+      addQ: () =>
+        afterSave(() => {
         const topicId = state.topicId;
         const mid = state.mid;
         if (!topicId || !mid) return;
@@ -679,9 +871,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             toast(errorText(err));
           }
         })();
-      },
+        }),
 
-      delQ: (id, leave) => {
+      delQ: (id, leave) =>
+        beforeDelete(id, () => {
         const mid = state.mid;
         if (!mid) return;
         mut((d, s) => {
@@ -691,9 +884,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return leave ? { screen: 'topicEditor', topicTab: 'questions', qId: null } : {};
         });
         void call(() => api.deleteQuestion(id), { reload: mid });
-      },
+        }),
 
-      moveQ: (id, dir) => {
+      moveQ: (id, dir) =>
+        afterSave(() => {
         const mid = state.mid;
         const topicId = state.topicId;
         if (!mid || !topicId) return;
@@ -707,11 +901,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           [a[i], a[j]] = [a[j], a[i]];
           void call(() => api.reorderQuestions(topicId, a.map((q) => q.id)), { reload: mid });
         });
-      },
+        }),
 
       setO: (oid, k, v) => {
-        const mid = state.mid;
-        if (!mid) return;
+        const qId = state.qId;
+        if (!qId || !state.mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const o = d[s.mid].topics
@@ -719,11 +913,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ?.questions.find((q) => q.id === s.qId)
             ?.options.find((x) => x.id === oid);
           if (o) (o as unknown as Record<string, unknown>)[k] = v;
+          return startEdit(s, 'question', qId);
         });
-        later(`option:${oid}:${k}`, () => void call(() => api.patchOption(oid, optionPatch(k, v)), { reload: mid }));
       },
 
-      addO: () => {
+      addO: () =>
+        afterSave(() => {
         const qId = state.qId;
         const mid = state.mid;
         if (!qId || !mid) return;
@@ -741,9 +936,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             toast(errorText(err));
           }
         })();
-      },
+        }),
 
-      delO: (oid) => {
+      delO: (oid) =>
+        afterSave(() => {
         const mid = state.mid;
         if (!mid) return;
         mut((d, s) => {
@@ -752,9 +948,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (q) q.options = q.options.filter((o) => o.id !== oid);
         });
         void call(() => api.deleteOption(oid), { reload: mid });
-      },
+        }),
 
-      moveO: (oid, dir) => {
+      moveO: (oid, dir) =>
+        afterSave(() => {
         const mid = state.mid;
         const qId = state.qId;
         if (!mid || !qId) return;
@@ -768,7 +965,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           [a[i], a[j]] = [a[j], a[i]];
           void call(() => api.reorderOptions(qId, a.map((o) => o.id)), { reload: mid });
         });
-      },
+        }),
 
       /* ───────── участницы ───────── */
 
@@ -976,24 +1173,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       /* ───────── бот и пользователи ───────── */
 
-      setBot: (patch) => {
-        set((s) => ({ bot: { ...s.bot, ...patch } }));
+      setBot: (patch) => set((s) => ({ bot: { ...s.bot, ...patch }, ...startEdit(s, 'bot', 'bot') })),
 
-        const body: Record<string, unknown> = {};
-        if (patch.quietFrom !== undefined) body.quietFrom = patch.quietFrom;
-        if (patch.quietTo !== undefined) body.quietTo = patch.quietTo;
-        if (patch.capPerDay !== undefined) body.capPerDay = patch.capPerDay;
-        if (patch.menu !== undefined) body.menu = patch.menu;
-        if (patch.desc !== undefined) body.description = patch.desc;
-        if (patch.shortDesc !== undefined) body.shortDescription = patch.shortDesc;
-        if (patch.commands !== undefined) {
-          // Команды хранятся парами, а правятся одним текстовым полем.
-          body.commands = parseCommands(patch.commands);
-        }
-        if (Object.keys(body).length === 0) return;
-
-        later('bot:settings', () => void call(() => api.patchBotSettings(body), { reload: 'global' }));
-      },
+      setText: (key, lang, value) =>
+        set((s) => ({
+          texts: s.texts.map((x) => (x.key === key ? { ...x, [lang]: value } : x)),
+          ...startEdit(s, 'text', key),
+        })),
 
       saveBotName: () => {
         const draft = state.botDraft;
@@ -1076,7 +1262,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })();
       },
     };
-  }, [state, set, toast, bootstrap, reloadGlobal, reloadMarathon]);
+  }, [state, set, toast, bootstrap, reloadGlobal, reloadMarathon, undoEdit]);
 
   return (
     <StateCtx.Provider value={state}>

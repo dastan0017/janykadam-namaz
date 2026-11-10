@@ -3,9 +3,10 @@ import { ParticipantDrawer } from './components/ParticipantDrawer';
 import { PointsModal } from './components/PointsModal';
 import { PreviewRail } from './components/PreviewRail';
 import { Sidebar } from './components/Sidebar';
-import { ConfirmDialog, Toast } from './components/ui';
+import { ConfirmDialog, SaveBar, Toast } from './components/ui';
 import { GLOBAL, SCREEN_TITLES } from './data/constants';
 import { currentMarathon, currentTopic, isCurator } from './lib/derive';
+import { isDirty } from './lib/edits';
 import { buildPreview } from './lib/preview';
 import { StoreProvider } from './store/StoreProvider';
 import { useActions, useAppState, useIsMobile } from './store/context';
@@ -35,7 +36,7 @@ const MOBILE_TABS: { id: Screen; label: string }[] = [
 
 function Panel() {
   const s = useAppState();
-  const { go, set } = useActions();
+  const { go, set, saveEdit, undoEdit } = useActions();
   const isMobile = useIsMobile();
   const m = currentMarathon(s);
   const cur = isCurator(s);
@@ -112,6 +113,7 @@ function Panel() {
               <h1 className="h-page">{SCREEN_TITLES[screen]}</h1>
             </div>
             {body}
+            {isDirty(s) ? <SaveBar saving={!!s.edit?.saving} onSave={saveEdit} onUndo={undoEdit} /> : null}
           </main>
 
           {hasRail && !isMobile ? <PreviewRail /> : null}

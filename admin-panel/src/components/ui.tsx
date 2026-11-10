@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { ICONS, PSTATUS, STATUS } from '../data/constants';
 import type { PagerState } from '../lib/paged';
 import type { MarathonStatus, ParticipantStatus } from '../types';
@@ -201,6 +201,40 @@ export function ConfirmDialog({
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+/* ───────── Полоса сохранения ───────── */
+
+/**
+ * Правки формы ждут этой кнопки. Полоса липнет к низу экрана и появляется
+ * только когда есть что сохранять — пустая строка внизу ничего не сообщает.
+ */
+export function SaveBar({ saving, onSave, onUndo }: { saving: boolean; onSave: () => void; onUndo: () => void }) {
+  // Ctrl/⌘+S — привычка из любого редактора.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        onSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onSave]);
+
+  return (
+    <div className="savebar" role="region" aria-label="Несохранённые изменения">
+      <span style={{ fontWeight: 600 }}>Несохранённые изменения</span>
+      <span className="hint savebar-hint">Пока не сохраните, бот работает по-старому</span>
+      <div className="grow" />
+      <button type="button" className="btn-secondary" onClick={onUndo} disabled={saving}>
+        Отменить
+      </button>
+      <button type="button" className="btn" onClick={onSave} disabled={saving}>
+        {saving ? 'Сохраняю…' : 'Сохранить'}
+      </button>
     </div>
   );
 }

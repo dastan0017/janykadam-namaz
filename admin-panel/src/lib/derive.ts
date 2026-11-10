@@ -116,7 +116,11 @@ export function validate(s: AppState): ValidationIssue[] {
     if (m.end < m.start) E('Дата окончания раньше начала', 'settings');
   }
 
-  s.texts.filter((t) => !t.kg || !t.ru).forEach((t) => W(`Текст бота «${t.key}» не переведён`, 'texts'));
+  // Предупреждение открывает тот самый текст — фильтр и поиск сбрасываются,
+  // иначе строки может не оказаться в списке.
+  s.texts
+    .filter((t) => !t.kg || !t.ru)
+    .forEach((t) => W(`Текст бота «${t.key}» не переведён`, 'texts', { textKey: t.key, textQ: '', textUntr: false }));
   return out;
 }
 

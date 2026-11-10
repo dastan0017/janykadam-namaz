@@ -215,6 +215,7 @@ export function seed(): AppState {
       capPerDay: 6,
     },
     botDraft: null,
+    edit: null,
     topicId: null,
     topicTab: 'settings',
     qId: null,

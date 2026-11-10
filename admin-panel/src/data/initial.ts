@@ -33,6 +33,7 @@ export function initialState(): AppState {
       capPerDay: 6,
     },
     botDraft: null,
+    edit: null,
     topicId: null,
     topicTab: 'settings',
     qId: null,

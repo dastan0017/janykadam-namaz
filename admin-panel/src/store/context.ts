@@ -11,6 +11,12 @@ export interface Actions {
   toast: (msg: string) => void;
   setRoleView: (role: Role) => void;
 
+  // форма: правки уходят на бэкенд по кнопке, а не сами собой
+  saveEdit: () => void;
+  undoEdit: () => void;
+  /** Выполнить действие, спросив про несохранённую форму. */
+  leaveForm: (then: () => void) => void;
+
   // вход
   loginWithTelegram: (payload: TelegramAuthPayload) => Promise<void>;
   logout: () => void;
@@ -58,6 +64,7 @@ export interface Actions {
 
   // бот и пользователи
   setBot: (patch: Partial<BotSettings>) => void;
+  setText: (key: string, lang: 'ru' | 'kg', value: string) => void;
   saveBotName: () => void;
   setRole: (uid: string, role: Role) => void;
   removeUser: (uid: string) => void;

@@ -61,7 +61,7 @@ export function toMarathon(dto: MarathonDto): Marathon {
 }
 
 /** Поля марафона в имена бэкенда — для PATCH. */
-const MARATHON_FIELD: Partial<Record<keyof Marathon, string>> = {
+const MARATHON_FIELD: Record<string, string> = {
   code: 'code',
   name: 'name',
   status: 'status',
@@ -81,7 +81,7 @@ const MARATHON_FIELD: Partial<Record<keyof Marathon, string>> = {
 };
 
 /** `{ excused: 3 }` → `{ excusedDays: 3 }`. Поля без пары на бэкенде отбрасываются. */
-export function marathonPatch<K extends keyof Marathon>(key: K, value: Marathon[K]): Record<string, unknown> | null {
+export function marathonPatch(key: string, value: unknown): Record<string, unknown> | null {
   const field = MARATHON_FIELD[key];
   if (!field) return null;
   // Пустое время напоминания означает «не слать», то есть NULL в базе.
@@ -163,6 +163,24 @@ const QUESTION_FIELD: Record<string, string> = {
 export function questionPatch(key: string, value: unknown): Record<string, unknown> | null {
   const field = QUESTION_FIELD[key];
   return field ? { [field]: value } : null;
+}
+
+/** Поля настроек бота в имена бэкенда. */
+const BOT_FIELD: Record<string, string> = {
+  desc: 'description',
+  shortDesc: 'shortDescription',
+  commands: 'commands',
+  quietFrom: 'quietFrom',
+  quietTo: 'quietTo',
+  capPerDay: 'capPerDay',
+};
+
+export function botPatch(key: string, value: unknown): Record<string, unknown> | null {
+  const field = BOT_FIELD[key];
+  if (!field) return null;
+  // Команды хранятся парами, а правятся одним текстовым полем.
+  if (field === 'commands') return { commands: parseCommands(String(value)) };
+  return { [field]: value };
 }
 
 export function optionPatch(key: 'kg' | 'ru' | 'pts', value: string | number): Record<string, unknown> {

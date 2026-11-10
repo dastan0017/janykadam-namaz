@@ -284,6 +284,23 @@ export interface BroadcastState {
   selIds?: string[];
 }
 
+/** Что правится в форме: марафон, тема, вопрос, настройки бота, текст бота. */
+export type EditKind = 'marathon' | 'topic' | 'question' | 'bot' | 'text';
+
+/** Плоский снимок значений формы: поле → значение. */
+export type Snapshot = Record<string, string | number | boolean>;
+
+/** Несохранённая правка формы — одна на панель: форма открыта всегда одна. */
+export interface EditState {
+  kind: EditKind;
+  /** Что правится: id марафона, темы, вопроса, ключ текста; у настроек бота — 'bot'. */
+  id: string;
+  /** Значения до правки: по ним считается тело запроса и работает «Отменить». */
+  base: Snapshot;
+  /** Запрос уже ушёл — кнопки заблокированы. */
+  saving: boolean;
+}
+
 export interface AppState {
   auth: AuthState;
   me: Me | null;
@@ -305,6 +322,8 @@ export interface AppState {
   bot: BotSettings;
   /** Черновик имени бота: null — поле не в режиме правки. */
   botDraft: string | null;
+  /** Несохранённые правки формы: null — сохранять нечего. */
+  edit: EditState | null;
   topicId: string | null;
   topicTab: 'settings' | 'questions';
   qId: string | null;
