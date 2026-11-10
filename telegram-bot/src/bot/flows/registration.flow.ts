@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Composer } from 'grammy';
 import { DateTime } from 'luxon';
-import { utcOffsetLabel } from '../../domain/location';
+import { utcOffsetLabel, type Location } from '../../domain/location';
 import { joinTopics } from '../../domain/text';
 import { toLocalDate } from '../../domain/windows';
 import { LocationService } from '../../services/location.service';
@@ -80,12 +80,9 @@ export class RegistrationFlow {
       return;
     }
 
-    // Место уже известно — записываем сразу, спрашивать заново не нужно.
-    if (participant.tz && participant.lat !== null && participant.lng !== null) {
-      await this.enrollAndWelcome(ctx, marathon.id);
-      return;
-    }
-
+    // Язык и место спрашиваем при каждом входе по ссылке: за месяцы между
+    // марафонами участница могла переехать, а место задаёт время намазов.
+    // Вернувшейся это два нажатия: её город стоит первой кнопкой.
     ctx.session.pendingMarathonId = marathon.id;
     await this.askLanguage(ctx, marathon.defaultLang);
   }
@@ -119,18 +116,42 @@ export class RegistrationFlow {
   async askLocation(ctx: Ctx): Promise<void> {
     ctx.session.step = 'choose_location';
     const presets = await this.location.presets(ctx.lang);
+    const keep = this.currentLocation(ctx);
+
     await ctx.reply(await ctx.t('choose_location'), {
       reply_markup: locationKeyboard(
         await ctx.t('btn_send_location'),
         presets.map((p) => ({ id: p.id, label: p.label })),
         await ctx.t('btn_other_city'),
+        keep ? await ctx.t('btn_keep_location', { место: keep.placeLabel }) : undefined,
       ),
     });
+  }
+
+  /** Место, которое у участницы уже есть. `null` — впервые. */
+  private currentLocation(ctx: Ctx): Location | null {
+    const p = ctx.participant;
+    if (!p?.tz || p.lat === null || p.lng === null) return null;
+    return {
+      lat: p.lat,
+      lng: p.lng,
+      tz: p.tz,
+      placeLabel: p.placeLabel || p.tz,
+      countryCode: p.countryCode ?? '',
+      source: p.locationSource ?? 'preset',
+    };
   }
 
   /** Нажата кнопка города-пресета или введено название для поиска. */
   async onLocationText(ctx: Ctx, text: string): Promise<boolean> {
     if (!ctx.participant) return false;
+
+    // «Оставить: Бишкек» — то же место, но дальше по флоу, как после выбора.
+    const keep = this.currentLocation(ctx);
+    if (keep && text === (await ctx.t('btn_keep_location', { место: keep.placeLabel }))) {
+      await this.applyLocation(ctx, keep);
+      return true;
+    }
 
     const otherCity = await ctx.t('btn_other_city');
     if (text === otherCity) {

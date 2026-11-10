@@ -42,8 +42,16 @@ export interface PresetButton {
  * Выбор места: геолокация, города-пресеты по три в ряд, поиск.
  * Кнопка геолокации не работает в Telegram Desktop, поэтому поиск обязан быть хорошим.
  */
-export function locationKeyboard(sendLocationLabel: string, presets: PresetButton[], otherCityLabel: string): Keyboard {
-  const kb = new Keyboard().requestLocation(sendLocationLabel).row();
+export function locationKeyboard(
+  sendLocationLabel: string,
+  presets: PresetButton[],
+  otherCityLabel: string,
+  /** Нынешнее место участницы: вернувшейся незачем искать свой город заново. */
+  keepLabel?: string,
+): Keyboard {
+  const kb = new Keyboard();
+  if (keepLabel) kb.text(keepLabel).row();
+  kb.requestLocation(sendLocationLabel).row();
 
   presets.forEach((p, i) => {
     kb.text(p.label);

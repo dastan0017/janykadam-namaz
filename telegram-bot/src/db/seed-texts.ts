@@ -191,6 +191,12 @@ export const BOT_TEXTS: SeedText[] = [
   { key: 'btn_resume', ru: 'Продолжить', kg: 'Улантуу', placeholders: [] },
   { key: 'btn_notify_next', ru: 'Сообщить о следующем', kg: 'Кийинкиси тууралуу кабарлаңыз', placeholders: [] },
   { key: 'btn_submit_for', ru: 'Сдать для «{марафон}»', kg: '«{марафон}» үчүн тапшыруу', placeholders: ['{марафон}'] },
+  {
+    key: 'btn_keep_location',
+    ru: '📍 Оставить: {место}',
+    kg: '📍 Калтыруу: {место}',
+    placeholders: ['{место}'],
+  },
   { key: 'btn_pause_3d', ru: '3 дня', kg: '3 күн', placeholders: [] },
   { key: 'btn_pause_week', ru: 'Неделя', kg: 'Бир жума', placeholders: [] },
   { key: 'btn_pause_until_cancel', ru: 'До отмены', kg: 'Жокко чыгарганга чейин', placeholders: [] },

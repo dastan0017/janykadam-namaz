@@ -98,6 +98,44 @@ describe('правила марафона', () => {
   });
 });
 
+describe('повторный вход по ссылке', () => {
+  it('язык и место спрашиваются снова, нынешний город — первой кнопкой', async () => {
+    vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
+    await startAndChooseBishkek();
+    await h.feed(callbackUpdate('rules:yes'));
+
+    h.reset();
+    await h.feed(textUpdate('/start m5', AT_0940_BISHKEK));
+
+    // Снова язык, а не сразу приветствие.
+    expect(lastButtons(h).map((b) => b.callback_data)).toEqual(['lang:kg', 'lang:ru']);
+
+    await h.feed(callbackUpdate('lang:kg'));
+    const keep = lastMenu().find((b) => b.includes('Бишкек'));
+    expect(keep, 'кнопка «оставить место» первой').toBe(lastMenu()[0]);
+
+    // Нажали «оставить» — место то же, запись на месте, правил снова нет.
+    h.reset();
+    await h.feed(textUpdate(keep!, AT_0940_BISHKEK));
+
+    const all = h.texts().join('\n');
+    expect(all).toContain('Бишкек');
+    expect(all).not.toMatch(/ЭРЕЖЕЛЕРИ|ПРАВИЛА/);
+
+    const [p] = await h.db.select().from(participants).where(eq(participants.tgUserId, TEST_TG_USER_ID));
+    expect(p.placeLabel).toBe('Бишкек');
+    expect(await h.db.select().from(enrollments).where(eq(enrollments.participantId, p.id))).toHaveLength(1);
+  });
+
+  it('первой участнице кнопки «оставить» нет', async () => {
+    vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
+    await h.feed(textUpdate('/start m5', AT_0940_BISHKEK));
+    await h.feed(callbackUpdate('lang:kg'));
+
+    expect(lastMenu().some((b) => b.includes('Оставить') || b.includes('Калтыруу'))).toBe(false);
+  });
+});
+
 describe('старая клавиатура', () => {
   it('кнопка прошлой версии работает и заменяется новой', async () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
