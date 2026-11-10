@@ -1,4 +1,5 @@
-import { ParticipantPill } from '../components/ui';
+import { Pager, ParticipantPill } from '../components/ui';
+import { usePaged } from '../lib/paged';
 import { TZ, TZ_ORDER } from '../data/constants';
 import { NEVER_REPORTED } from '../api/map';
 import { currentData, currentMarathon, doneToday, filteredParts, isNewToday } from '../lib/derive';
@@ -16,6 +17,8 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
   const m = currentMarathon(s);
   const selN = s.pf.sel.length;
   const hasFilters = !!(s.pf.q || s.pf.status !== 'all' || s.pf.tz !== 'all' || s.pf.act !== 'all');
+  // Страница сбрасывается, когда меняются фильтры или сортировка: список другой.
+  const { rows, pager } = usePaged(list, `${s.mid}|${s.pf.q}|${s.pf.status}|${s.pf.tz}|${s.pf.act}|${s.pf.sort}|${s.pf.dir}`);
 
   const lastLabel = (n: number) => (n >= NEVER_REPORTED ? 'ни разу' : n === 0 ? 'сегодня' : n === 1 ? 'вчера' : n + ' дн. назад');
 
@@ -95,7 +98,7 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
       ) : isMobile ? (
         /* На телефоне — карточки: куратор смотрит участниц между другими делами */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {list.map((p) => (
+          {rows.map((p) => (
             <button
               key={p.id}
               type="button"
@@ -134,7 +137,7 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
             </button>
           </div>
 
-          {list.map((p) => {
+          {rows.map((p) => {
             const lateBad = p.last >= 3 && p.status === 'active';
             return (
               <div
@@ -172,6 +175,8 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
           })}
         </div>
       )}
+
+      <Pager {...pager} />
     </>
   );
 }

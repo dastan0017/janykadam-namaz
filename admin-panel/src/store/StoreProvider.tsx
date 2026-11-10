@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, USE_SEED, setUnauthorizedHandler } from '../api/client';
 import { api } from '../api/endpoints';
-import { loadGlobal, loadMarathon } from '../api/load';
+import { loadGlobal, loadMarathon, loadParts, type GlobalPart } from '../api/load';
 import {
   marathonPatch, optionPatch, parseCommands, questionPatch, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
 } from '../api/map';
@@ -11,12 +11,36 @@ import { seed } from '../data/seed';
 import { currentData, currentMarathon, filteredParts, segments } from '../lib/derive';
 import { plural, slugify } from '../lib/format';
 import { localDate, tzLabel } from '../lib/time';
-import type { AppState, Marathon, MarathonData, QuestionType } from '../types';
+import type { AppState, Marathon, MarathonData, QuestionType, Screen } from '../types';
 import { ActionsCtx, StateCtx, type Actions, type Patch, type Updater } from './context';
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
 const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
+ * Что перезагружать при открытии экрана.
+ *
+ * Данные правит не только панель: бот пишет в ту же базу, и отчёт, пришедший
+ * минуту назад, виден только после обновления. Поэтому экран открывается со
+ * свежими данными — но тянет лишь то, что показывает. `data` — текущий марафон.
+ */
+const REFRESH: Record<Screen, (GlobalPart | 'data')[]> = {
+  marathons: ['marathons'],
+  overview: ['data'],
+  topics: ['data'],
+  topicEditor: ['data'],
+  questionEditor: ['data'],
+  participants: ['data'],
+  broadcasts: ['data'],
+  analytics: ['data'],
+  settings: ['marathons', 'data'],
+  namaz: ['marathons', 'data'],
+  texts: ['texts'],
+  bot: ['bot'],
+  users: ['users'],
+  journal: ['audit'],
+};
 
 /**
  * Состояние панели.
@@ -30,7 +54,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(initialState);
   const toastTimer = useRef<number | undefined>(undefined);
   const pollTimer = useRef<number | undefined>(undefined);
-  const debounced = useRef(new Map<string, number>());
+  const debounced = useRef(new Map<string, { id: number; fn: () => void }>());
+  // Текущее состояние для эффекта обновления: он зависит только от экрана.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  // Экран и марафон, для которых данные уже обновлены.
+  const refreshedKey = useRef<string | null>(null);
 
   const set = useCallback((patch: Patch | Updater) => {
     setState((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }));
@@ -40,6 +69,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.clearTimeout(toastTimer.current);
     setState((s) => ({ ...s, toast: msg }));
     toastTimer.current = window.setTimeout(() => setState((s) => ({ ...s, toast: null })), 3600);
+  }, []);
+
+  /** Досылает отложенные правки сейчас: иначе ответ сервера затрёт их. */
+  const flushPending = useCallback(() => {
+    for (const [key, pending] of debounced.current) {
+      window.clearTimeout(pending.id);
+      debounced.current.delete(key);
+      pending.fn();
+    }
   }, []);
 
   /* ───────── загрузка ───────── */
@@ -70,6 +108,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const me = await api.me();
       const patch = await loadGlobal();
       const first = patch.marathons.find((m) => m.status === 'running') ?? patch.marathons[0];
+
+      // Отмечаем до того, как панель станет видимой: иначе эффект обновления
+      // успеет сработать на первом же кадре и сходит за тем же самым второй раз.
+      refreshedKey.current = `${stateRef.current.screen}|${first?.id ?? ''}`;
 
       setState((s) => ({
         ...s,
@@ -145,9 +187,51 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setUnauthorizedHandler(null);
       window.clearTimeout(toastTimer.current);
       window.clearInterval(pollTimer.current);
-      for (const t of timers.values()) window.clearTimeout(t);
+      for (const t of timers.values()) window.clearTimeout(t.id);
     };
   }, [bootstrap]);
+
+  /**
+   * Обновление при открытии экрана. Срабатывает на смену экрана или марафона
+   * и тянет только то, что этот экран показывает.
+   */
+  const refreshKey = `${state.screen}|${state.mid ?? ''}`;
+  useEffect(() => {
+    if (USE_SEED || state.auth !== 'ready') return;
+    if (refreshedKey.current === refreshKey) return;
+    refreshedKey.current = refreshKey;
+
+    const { screen, mid, loaded } = stateRef.current;
+    const parts = REFRESH[screen];
+    const globals = parts.filter((p): p is GlobalPart => p !== 'data');
+    // Данные марафона нужны и тем экранам, что их не показывают, если их ещё
+    // нет: иначе переключение марафона с общего экрана оставит пустоту.
+    const withData = !!mid && (parts.includes('data') || !loaded.includes(mid));
+
+    let alive = true;
+    void (async () => {
+      // Несохранённые правки — до запроса: ответ сервера затёр бы их.
+      flushPending();
+      try {
+        await Promise.all([
+          globals.length
+            ? loadParts(globals).then((patch) => {
+                if (alive) setState((s) => ({ ...s, ...patch }));
+              })
+            : null,
+          withData && mid ? reloadMarathon(mid) : null,
+        ]);
+      } catch (err) {
+        if (!alive) return;
+        setState((s) => ({ ...s, loading: false }));
+        toast(`Не удалось обновить данные: ${errorText(err)}`);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [refreshKey, state.auth, flushPending, reloadMarathon, toast]);
 
   const actions = useMemo<Actions>(() => {
     /** Правка данных марафонов: клонирует data и marathons, чтобы мутировать их свободно. */
@@ -179,8 +263,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     /** Отложенный запрос: текстовые поля правятся посимвольно, а сохранять надо раз. */
     const later = (key: string, fn: () => void, ms = 600) => {
-      window.clearTimeout(debounced.current.get(key));
-      debounced.current.set(key, window.setTimeout(fn, ms));
+      const prev = debounced.current.get(key);
+      if (prev) window.clearTimeout(prev.id);
+      const id = window.setTimeout(() => {
+        debounced.current.delete(key);
+        fn();
+      }, ms);
+      debounced.current.set(key, { id, fn });
     };
 
     const go: Actions['go'] = (screen, extra) => set({ screen, navOpen: false, ...extra });
@@ -214,15 +303,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       /* ───────── марафоны ───────── */
 
       switchM: (id) => {
-        if (!state.loaded.includes(id)) {
-          set({ loading: true });
-          void reloadMarathon(id).catch((err) => {
-            setState((s) => ({ ...s, loading: false }));
-            toast(errorText(err));
-          });
-        }
+        // Загрузку берёт на себя эффект обновления ниже: он всё равно сходит
+        // за данными при смене марафона, и два запроса подряд не нужны.
         set((s) => ({
           mid: id,
+          loading: !s.loaded.includes(id),
           topicId: null,
           qId: null,
           drawerId: null,

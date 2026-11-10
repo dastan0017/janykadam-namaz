@@ -2,7 +2,8 @@ import { ICONS } from '../data/constants';
 import { dateRu, plural } from '../lib/format';
 import { useActions, useAppState } from '../store/context';
 import type { MarathonStatus } from '../types';
-import { EmptyState, Segmented, StatusPill } from '../components/ui';
+import { EmptyState, Pager, Segmented, StatusPill } from '../components/ui';
+import { usePaged } from '../lib/paged';
 
 const TABS: { id: MarathonStatus | 'all'; label: string }[] = [
   { id: 'all', label: 'Все' },
@@ -17,6 +18,7 @@ export function Marathons() {
   const { set, go, switchM, duplicate, deleteM, copyLink, createM } = useActions();
 
   const list = s.marathons.filter((x) => s.filterTab === 'all' || x.status === s.filterTab);
+  const { rows, pager } = usePaged(list, s.filterTab, 12);
   const nm = s.newM;
 
   return (
@@ -84,7 +86,7 @@ export function Marathons() {
       {s.marathons.length > 0 && list.length === 0 ? <div style={{ color: 'var(--muted)', padding: 30, textAlign: 'center' }}>В этом списке пусто.</div> : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
-        {list.map((x) => {
+        {rows.map((x) => {
           // Данные грузятся по одному марафону, поэтому для остальных берём
           // сводку из списка — иначе карточки показывали бы нули.
           const dd = s.data[x.id];
@@ -181,6 +183,8 @@ export function Marathons() {
           );
         })}
       </div>
+
+      <Pager {...pager} />
     </>
   );
 }

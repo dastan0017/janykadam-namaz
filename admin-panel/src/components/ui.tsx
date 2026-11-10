@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { ICONS, PSTATUS, STATUS } from '../data/constants';
+import type { PagerState } from '../lib/paged';
 import type { MarathonStatus, ParticipantStatus } from '../types';
 
 /* ───────── Иконка ───────── */
@@ -221,5 +222,30 @@ export function Bar({ pct, color, height, radius }: { pct: number; color?: strin
     <span className={'bar-track' + (radius === 'pill' ? ' bar-track-pill' : '')} style={{ height }}>
       <span className="bar-fill" style={{ width: Math.max(0, Math.min(100, pct)) + '%', background: color }} />
     </span>
+  );
+}
+
+/* ───────── Страницы ───────── */
+
+/** Переключатель страниц. На одной странице не показывается. */
+export function Pager({ page, pages, from, to, total, onPage }: PagerState) {
+  if (pages <= 1) return null;
+
+  return (
+    <nav className="pager" aria-label="Страницы">
+      <span className="sub">
+        {from + 1}–{to} из {total}
+      </span>
+      <div className="grow" />
+      <button type="button" className="btn-secondary btn-sm" onClick={() => onPage(page - 1)} disabled={page === 0}>
+        Назад
+      </button>
+      <span className="sub nums" aria-live="polite">
+        {page + 1} / {pages}
+      </span>
+      <button type="button" className="btn-secondary btn-sm" onClick={() => onPage(page + 1)} disabled={page >= pages - 1}>
+        Вперёд
+      </button>
+    </nav>
   );
 }

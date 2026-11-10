@@ -1,3 +1,5 @@
+import { Pager } from '../components/ui';
+import { usePaged } from '../lib/paged';
 import { currentData, segments } from '../lib/derive';
 import { plural } from '../lib/format';
 import { buildPreview } from '../lib/preview';
@@ -12,6 +14,7 @@ export function Broadcasts() {
   const nLabel = `${n} ${plural(n, 'участница', 'участницы', 'участниц')}`;
   const pv = buildPreview(s);
   const history = currentData(s).broadcasts;
+  const { rows: historyRows, pager: historyPager } = usePaged(history, s.mid ?? '', 10);
   const { stage, result } = s.bc;
 
   // ~30 сообщений в секунду — на 500 человек это ≈17 секунд, мгновенно не бывает
@@ -160,7 +163,7 @@ export function Broadcasts() {
           Прошлые рассылки
         </div>
         <div className="card-flush">
-          {history.map((h) => (
+          {historyRows.map((h) => (
             <div key={h.id} style={{ display: 'grid', gridTemplateColumns: '110px minmax(0,1fr) 200px', gap: 12, padding: '10px 12px', borderTop: '1px solid var(--line-soft)', fontSize: 12.5 }}>
               <span style={{ color: 'var(--muted)' }}>{h.at}</span>
               <span className="ellipsis">{h.text}</span>
@@ -171,6 +174,8 @@ export function Broadcasts() {
             </div>
           ))}
         </div>
+
+        <Pager {...historyPager} />
       </section>
     </div>
   );

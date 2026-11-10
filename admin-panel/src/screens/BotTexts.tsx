@@ -1,3 +1,5 @@
+import { Pager } from '../components/ui';
+import { usePaged } from '../lib/paged';
 import { useActions, useAppState } from '../store/context';
 
 /** Тексты бота общие для всех марафонов. Нажатие на строку меняет превью справа. */
@@ -7,10 +9,11 @@ export function BotTexts() {
   const q = s.textQ.trim().toLowerCase();
   const untranslated = s.texts.filter((t) => !t.kg || !t.ru).length;
 
-  const rows = s.texts.filter(
+  const found = s.texts.filter(
     (t) =>
       (!q || t.key.includes(q) || t.ru.toLowerCase().includes(q) || t.kg.toLowerCase().includes(q)) && (!s.textUntr || !t.kg || !t.ru),
   );
+  const { rows, pager } = usePaged(found, `${q}|${String(s.textUntr)}`);
 
   return (
     <>
@@ -64,6 +67,8 @@ export function BotTexts() {
           );
         })}
       </div>
+
+      <Pager {...pager} />
     </>
   );
 }

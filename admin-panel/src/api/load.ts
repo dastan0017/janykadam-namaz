@@ -27,28 +27,41 @@ async function usersOrEmpty() {
   }
 }
 
+/**
+ * Куски общего состояния по отдельности. Экран обновляет только то, что
+ * показывает: открытие «Журнала» не должно тянуть ещё и тексты бота.
+ */
+const PART = {
+  marathons: async () => (await api.marathons()).map(toMarathon),
+  texts: async () => (await api.botTexts()).map(toBotText),
+  users: async () => (await usersOrEmpty()).map(toPanelUser),
+  audit: async () => (await api.audit(100)).map(toAuditEntry),
+  bot: async () => {
+    const b = await api.botSettings();
+    return toBotSettings(b, b.username, b.name);
+  },
+} satisfies { [K in keyof GlobalPatch]: () => Promise<GlobalPatch[K]> };
+
+export type GlobalPart = keyof typeof PART;
+
+/** Обновляет названные куски общего состояния. */
+export async function loadParts(parts: GlobalPart[]): Promise<Partial<GlobalPatch>> {
+  const done = await Promise.all(parts.map(async (p) => [p, await PART[p]()] as const));
+  return Object.fromEntries(done) as Partial<GlobalPatch>;
+}
+
 export async function loadGlobal(): Promise<GlobalPatch> {
-  const [marathons, namaz, presets, botSettings, texts, users, audit] = await Promise.all([
-    api.marathons(),
+  const [parts, namaz, presets] = await Promise.all([
+    loadParts(['marathons', 'bot', 'texts', 'users', 'audit']),
     api.namazLibrary(),
     api.prayerPresets(),
-    api.botSettings(),
-    api.botTexts(),
-    usersOrEmpty(),
-    api.audit(100),
   ]);
 
   // Справочники — в модульный реестр: экраны читают их синхронно.
   applyNamazLibrary(namaz);
   setPrayerPresets(presets.map(toPresetTimes).map((p) => ({ tz: p.tz, city: p.city, pt: p.pt as never })));
 
-  return {
-    marathons: marathons.map(toMarathon),
-    bot: toBotSettings(botSettings, botSettings.username, botSettings.name),
-    texts: texts.map(toBotText),
-    users: users.map(toPanelUser),
-    audit: audit.map(toAuditEntry),
-  };
+  return parts as GlobalPatch;
 }
 
 /** Данные одного марафона: темы, намазы, участницы, рассылки, тренд. */

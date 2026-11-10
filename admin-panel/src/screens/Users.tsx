@@ -1,3 +1,5 @@
+import { Pager } from '../components/ui';
+import { usePaged } from '../lib/paged';
 import { meId } from '../lib/derive';
 import { plural } from '../lib/format';
 import { useActions, useAppState } from '../store/context';
@@ -12,7 +14,8 @@ export function Users() {
   const me = meId(s);
   const q = s.userQ.trim().toLowerCase();
   const admins = s.users.filter((u) => u.role === 'admin').length;
-  const rows = s.users.filter((u) => !q || u.name.toLowerCase().includes(q) || u.tg.toLowerCase().includes(q));
+  const found = s.users.filter((u) => !q || u.name.toLowerCase().includes(q) || u.tg.toLowerCase().includes(q));
+  const { rows, pager } = usePaged(found, q, 20);
   const inv = s.invite;
 
   return (
@@ -135,6 +138,8 @@ export function Users() {
           );
         })}
       </div>
+
+      <Pager {...pager} />
 
       <div className="hint">Свою роль поменять нельзя, и в панели всегда остаётся хотя бы один админ.</div>
     </div>
