@@ -77,6 +77,17 @@ fi
 say 'Базовые данные'
 "${COMPOSE[@]}" exec -T app node dist/db/seed.js
 
+say 'Ночные копии базы'
+install -m 0755 "$REPO_DIR/deploy/backup.sh" /usr/local/bin/janykadam-backup
+cat > /etc/cron.d/janykadam-backup <<'CRON'
+# Копия базы каждую ночь в 03:30 UTC. Хранится 14 дней в /var/backups/janykadam.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+30 3 * * * root /usr/local/bin/janykadam-backup >> /var/log/janykadam-backup.log 2>&1
+CRON
+chmod 644 /etc/cron.d/janykadam-backup
+echo 'cron: /etc/cron.d/janykadam-backup, копии в /var/backups/janykadam'
+
 say 'Проверка'
 "${COMPOSE[@]}" ps
 domain="$(grep -E '^DOMAIN=' "$ENV_FILE" | cut -d= -f2-)"

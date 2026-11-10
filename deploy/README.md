@@ -89,15 +89,38 @@ cd /opt/janykadam && git pull && docker compose -f deploy/docker-compose.yml --e
 
 ## Резервные копии
 
-Их никто не делает автоматически. Минимум — ночной дамп на тот же диск плюс
-копия наружу:
+`bootstrap.sh` ставит [`backup.sh`](backup.sh) в `/usr/local/bin/janykadam-backup`
+и заводит cron: каждую ночь в 03:30 UTC дамп базы ложится в
+`/var/backups/janykadam`, хранится 14 дней. Скрипт отказывается подменять
+готовую копию оборванным дампом и ругается, если дамп подозрительно мал.
+
+Сделать копию прямо сейчас:
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db pg_dump -U janykadam janykadam | gzip > /opt/backups/janykadam-$(date +%F).sql.gz
+/usr/local/bin/janykadam-backup
 ```
 
-Поставьте это в cron и не забудьте уносить копии с сервера: диск у VPS один, и
-теряется он вместе с машиной.
+**Копии лежат на том же диске, что и база.** Это спасает от испорченных данных,
+но не от потери машины — диск у VPS один. Уносите копии наружу.
+
+Проверить, что копия действительно восстанавливается (делать хотя бы изредка —
+непроверенная копия не копия):
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db psql -U janykadam -d postgres -c 'create database restore_test'
+```
+
+```bash
+gunzip -c /var/backups/janykadam/ИМЯ.sql.gz | docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db psql -U janykadam -d restore_test
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db psql -U janykadam -d restore_test -c 'select count(*) from geonames'
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db psql -U janykadam -d postgres -c 'drop database restore_test'
+```
 
 ## Что открыто наружу
 
