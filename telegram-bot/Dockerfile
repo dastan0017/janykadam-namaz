@@ -30,6 +30,10 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
 COPY package.json ./
 
+# Импорт GeoNames скачивает архив в data/ — процесс работает не от root,
+# поэтому каталог создаём заранее и отдаём его пользователю node.
+RUN mkdir -p /app/data && chown -R node:node /app/data
+
 USER node
 EXPOSE 3000
 

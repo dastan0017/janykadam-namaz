@@ -210,10 +210,27 @@ pg-boss в тестах тоже поддельный: задания не ис�
 docker compose up -d --build
 ```
 
-Затем внутри контейнера применить миграции и сид:
+Затем внутри контейнера применить миграции, справочник городов и сид:
 
 ```bash
-docker compose exec app node -e "require('./dist/db/migrate.js')"
+docker compose exec app node dist/db/migrate.js
+```
+
+```bash
+docker compose exec app node dist/scripts/import-geonames.js
+```
+
+```bash
+docker compose exec app node dist/db/seed.js
+```
+
+`pnpm` в финальном образе нет — только `node` и собранный `dist`.
+
+Порт базы наружу публикуется только для отладки, и 5433 на машине разработчика
+может быть занят. Тогда:
+
+```bash
+DB_PORT=5434 docker compose up -d
 ```
 
 В проде поставьте `BOT_MODE=webhook`, `PUBLIC_URL` и `WEBHOOK_SECRET` — бот сам

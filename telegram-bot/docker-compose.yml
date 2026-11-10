@@ -7,7 +7,9 @@ services:
       POSTGRES_DB: janykadam
       TZ: UTC
     ports:
-      - '5433:5432'
+      # Наружу порт нужен только для отладки, и 5433 на машине разработчика
+      # может быть занят: DB_PORT=5434 docker compose up -d db
+      - '${DB_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +27,10 @@ services:
       TZ: UTC
       NODE_ENV: production
       DATABASE_URL: postgres://janykadam:janykadam@db:5432/janykadam
-    env_file: [.env]
+    # .env необязателен: в проде переменные обычно приходят из окружения.
+    env_file:
+      - path: .env
+        required: false
     ports:
       - '3000:3000'
     restart: unless-stopped
