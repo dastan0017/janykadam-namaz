@@ -291,6 +291,8 @@ export async function registerInBishkek(h: Harness, at: Date): Promise<void> {
   await h.feed(textUpdate('Бишкек · UTC+6', at));
   // Без согласия с правилами записи в марафон не будет.
   await h.feed(callbackUpdate('rules:yes'));
+  // Цель спрашивается до приветствия — откладываем её.
+  await h.feed(callbackUpdate('goal:later'));
 }
 
 /** Запись тестовой участницы, зарегистрированной через бота. */

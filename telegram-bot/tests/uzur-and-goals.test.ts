@@ -112,6 +112,7 @@ describe('узур и цель через бота', () => {
     await h.feed(callbackUpdate('lang:kg'));
     await h.feed(textUpdate('Бишкек · UTC+6', AT_0940_BISHKEK));
     await h.feed(callbackUpdate('rules:yes'));
+    // Вопрос о цели приходит до приветствия — отвечаем на него.
     await h.feed(textUpdate('Намазды калтырбоо', AT_0940_BISHKEK));
   }
 

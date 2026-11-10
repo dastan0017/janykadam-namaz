@@ -5,15 +5,14 @@ import { utcOffsetLabel, type Location } from '../../domain/location';
 import { joinTopics } from '../../domain/text';
 import { toLocalDate } from '../../domain/windows';
 import { LocationService } from '../../services/location.service';
-import { ParticipantsService } from '../../services/participants.service';
+import { GOAL_MAX_LENGTH, ParticipantsService } from '../../services/participants.service';
 import { PrayerService } from '../../services/prayer.service';
 import { ReportsService } from '../../services/reports.service';
 import { SettingsService } from '../../services/settings.service';
-import { ProfileFlow } from './profile.flow';
 import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import {
-  changeLocationKeyboard, languageKeyboard, locationKeyboard, mainKeyboard,
+  changeLocationKeyboard, goalAskKeyboard, languageKeyboard, locationKeyboard, mainKeyboard,
   notifyNextKeyboard, rulesKeyboard, searchResultsKeyboard,
 } from '../keyboards';
 
@@ -34,7 +33,6 @@ export class RegistrationFlow {
     private readonly prayer: PrayerService,
     private readonly reports: ReportsService,
     private readonly settings: SettingsService,
-    private readonly profile: ProfileFlow,
   ) {}
 
   register(bot: Composer<Ctx>): void {
@@ -48,6 +46,9 @@ export class RegistrationFlow {
     bot.callbackQuery('next:yes', (ctx) => this.onNotifyNext(ctx));
     bot.callbackQuery('rules:yes', (ctx) => this.onRulesAccept(ctx));
     bot.callbackQuery('rules:no', (ctx) => this.onRulesDecline(ctx));
+    bot.callbackQuery('goal:write', (ctx) => this.onGoalWrite(ctx));
+    bot.callbackQuery('goal:keep', (ctx) => this.onGoalKeep(ctx));
+    bot.callbackQuery('goal:later', (ctx) => this.onGoalLater(ctx));
 
     // Геолокация принимается в любой момент, не только через кнопку.
     bot.on('message:location', (ctx) => this.onLocationMessage(ctx));
@@ -325,11 +326,93 @@ export class RegistrationFlow {
     ctx.participant.activeEnrollmentId = enrollment.id;
     ctx.session.pendingMarathonId = undefined;
 
+    // Цель спрашиваем до приветствия: сначала вопросы, потом «вы записаны».
+    ctx.session.welcomeMarathonId = marathon.id;
+    await this.askGoal(ctx, enrollment.goal);
+  }
+
+  /* ───────── цель марафона ───────── */
+
+  /**
+   * Вопрос о цели. Спрашивается при каждом входе по ссылке: цель у марафона
+   * своя, и за месяцы она меняется. Прежнюю видно в вопросе — её можно
+   * оставить одной кнопкой.
+   */
+  async askGoal(ctx: Ctx, current?: string | null): Promise<void> {
+    const goal = current?.trim();
+    ctx.session.step = 'goal';
+
+    await ctx.reply(goal ? await ctx.t('goal_ask_again', { максат: goal }) : await ctx.t('goal_ask'), {
+      reply_markup: goal
+        ? goalAskKeyboard(await ctx.t('btn_goal_keep'), 'goal:keep')
+        : goalAskKeyboard(await ctx.t('btn_goal_later'), 'goal:later'),
+    });
+  }
+
+  /** Ответ на вопрос о цели. `true` — сообщение разобрано здесь. */
+  async onGoalText(ctx: Ctx, text: string): Promise<boolean> {
+    if (ctx.session.step !== 'goal' || !ctx.participant) return false;
+
+    if (text.length > GOAL_MAX_LENGTH) {
+      await ctx.reply(await ctx.t('goal_too_long', { предел: GOAL_MAX_LENGTH }));
+      return true;
+    }
+
+    const active = await this.participants.activeContext(ctx.participant);
+    if (!active) {
+      ctx.session.step = undefined;
+      await ctx.reply(await ctx.t('not_enrolled'));
+      return true;
+    }
+
+    await this.participants.setGoal(active.enrollment.id, text);
+    await ctx.reply(await ctx.t('goal_saved', { максат: text.trim() }));
+    await this.afterGoal(ctx);
+    return true;
+  }
+
+  private async onGoalWrite(ctx: Ctx): Promise<void> {
+    await ctx.answerCallbackQuery();
+    if (!ctx.participant) return;
+    const active = await this.participants.activeContext(ctx.participant);
+    await this.askGoal(ctx, active?.enrollment.goal);
+  }
+
+  private async onGoalKeep(ctx: Ctx): Promise<void> {
+    await ctx.answerCallbackQuery();
+    await ctx.reply(await ctx.t('goal_kept'));
+    await this.afterGoal(ctx);
+  }
+
+  private async onGoalLater(ctx: Ctx): Promise<void> {
+    await ctx.answerCallbackQuery();
+    await ctx.reply(await ctx.t('goal_skipped'));
+    await this.afterGoal(ctx);
+  }
+
+  /**
+   * После ответа о цели. Если вопрос был частью записи — показываем
+   * приветствие; если цель меняли из меню, показывать нечего.
+   */
+  private async afterGoal(ctx: Ctx): Promise<void> {
+    ctx.session.step = undefined;
+    const marathonId = ctx.session.welcomeMarathonId;
+    ctx.session.welcomeMarathonId = undefined;
+    if (!marathonId || !ctx.participant) return;
+
+    const marathon = await this.participants.marathonById(marathonId);
+    if (marathon) await this.welcome(ctx, marathon);
+  }
+
+  /* ───────── приветствие ───────── */
+
+  private async welcome(ctx: Ctx, marathon: { name: string; status: string; startDate: string }): Promise<void> {
+    if (!ctx.participant) return;
+
     if (marathon.status === 'recruiting') {
       const date = DateTime.fromISO(marathon.startDate).setLocale(ctx.lang === 'kg' ? 'ky' : 'ru').toFormat('d MMMM');
       await ctx.reply(await ctx.t('marathon_not_started', { марафон: marathon.name, дата: date }));
       await this.showMainKeyboard(ctx);
-      if (!enrollment.goal) await this.profile.askGoal(ctx);
       return;
     }
 
@@ -363,8 +446,6 @@ export class RegistrationFlow {
       );
     }
     await this.showMainKeyboard(ctx);
-    // Цель — последний шаг записи: ответ на неё ждём обычным сообщением.
-    if (!enrollment.goal) await this.profile.askGoal(ctx);
   }
 
   private async onNotifyNext(ctx: Ctx): Promise<void> {

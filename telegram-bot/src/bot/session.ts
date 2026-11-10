@@ -16,6 +16,8 @@ export interface SessionData {
   step?: Step;
   /** Марафон, в который записываем сразу после регистрации. */
   pendingMarathonId?: string;
+  /** Марафон, приветствие которого ждёт ответа о цели. */
+  welcomeMarathonId?: string;
   /** Последняя выдача поиска городов: id → данные для кнопки. */
   searchHits?: Record<string, { lat: number; lng: number; label: string; cc: string; tz: string }>;
   /** Незавершённый отчёт. */

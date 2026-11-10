@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Composer } from 'grammy';
 import { DRIZZLE, type Db } from '../../db/drizzle.module';
 import { toLocalDate } from '../../domain/windows';
-import { GOAL_MAX_LENGTH, ParticipantsService, type ActiveContext } from '../../services/participants.service';
+import { ParticipantsService, type ActiveContext } from '../../services/participants.service';
 import type { Ctx } from '../context';
 import { aboutKeyboard, goalKeyboard } from '../keyboards';
 
@@ -22,55 +22,10 @@ export class ProfileFlow {
   ) {}
 
   register(bot: Composer<Ctx>): void {
-    bot.callbackQuery('goal:write', (ctx) => this.onGoalWrite(ctx));
-    bot.callbackQuery('goal:later', (ctx) => this.onGoalLater(ctx));
     bot.callbackQuery(/^uzur:(on|off)$/, (ctx) => this.onUzur(ctx));
   }
 
   /* ───────── цель ───────── */
-
-  /** Вопрос при записи в марафон и по кнопке «записать цель». */
-  async askGoal(ctx: Ctx): Promise<void> {
-    ctx.session.step = 'goal';
-    await ctx.reply(await ctx.t('goal_ask'), {
-      reply_markup: goalKeyboard(await ctx.t('btn_goal_later')),
-    });
-  }
-
-  /**
-   * Ответ на вопрос о цели. `true` — сообщение разобрано здесь и дальше не идёт.
-   */
-  async onGoalText(ctx: Ctx, text: string): Promise<boolean> {
-    if (ctx.session.step !== 'goal' || !ctx.participant) return false;
-
-    if (text.length > GOAL_MAX_LENGTH) {
-      await ctx.reply(await ctx.t('goal_too_long', { предел: GOAL_MAX_LENGTH }));
-      return true;
-    }
-
-    const active = await this.participants.activeContext(ctx.participant);
-    if (!active) {
-      ctx.session.step = undefined;
-      await ctx.reply(await ctx.t('not_enrolled'));
-      return true;
-    }
-
-    await this.participants.setGoal(active.enrollment.id, text);
-    ctx.session.step = undefined;
-    await ctx.reply(await ctx.t('goal_saved', { максат: text.trim() }));
-    return true;
-  }
-
-  private async onGoalWrite(ctx: Ctx): Promise<void> {
-    await ctx.answerCallbackQuery();
-    await this.askGoal(ctx);
-  }
-
-  private async onGoalLater(ctx: Ctx): Promise<void> {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = undefined;
-    await ctx.reply(await ctx.t('goal_skipped'));
-  }
 
   /** Кнопка «Максаттарым»: цель и возможность её изменить. */
   async onGoals(ctx: Ctx): Promise<void> {

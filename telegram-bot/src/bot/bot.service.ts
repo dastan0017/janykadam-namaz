@@ -181,7 +181,7 @@ export class BotService implements OnModuleDestroy {
 
     // Цель марафона — такой же ожидаемый ответ, как ответ на вопрос темы.
     // Разбирается после меню: нажатую кнопку нельзя записать в цель.
-    if (await this.profile.onGoalText(ctx, text)) return;
+    if (await this.registration.onGoalText(ctx, text)) return;
 
     await this.sayVideoOnly(ctx);
   }

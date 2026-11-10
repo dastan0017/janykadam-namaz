@@ -127,6 +127,33 @@ describe('повторный вход по ссылке', () => {
     expect(await h.db.select().from(enrollments).where(eq(enrollments.participantId, p.id))).toHaveLength(1);
   });
 
+  it('цель спрашивают и во второй раз, прежнюю можно оставить одной кнопкой', async () => {
+    vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
+    await startAndChooseBishkek();
+    await h.feed(callbackUpdate('rules:yes'));
+    await h.feed(textUpdate('Намазды калтырбоо', AT_0940_BISHKEK));
+
+    // Второй вход по той же ссылке.
+    await h.feed(textUpdate('/start m5', AT_0940_BISHKEK));
+    await h.feed(callbackUpdate('lang:kg'));
+    const keep = lastMenu()[0];
+    h.reset();
+    await h.feed(textUpdate(keep, AT_0940_BISHKEK));
+
+    // Вопрос о цели с прежней и кнопкой «оставить», приветствия ещё нет.
+    expect(h.lastText()).toContain('Намазды калтырбоо');
+    expect(lastButtons(h).map((b) => b.callback_data)).toEqual(['goal:keep']);
+    expect(lastMenu(), 'клавиатура приходит только с приветствием').toEqual([]);
+
+    h.reset();
+    await h.feed(callbackUpdate('goal:keep'));
+    expect(lastMenu()).toContain('🎥 Отчёт тапшыруу');
+
+    const [p] = await h.db.select().from(participants).where(eq(participants.tgUserId, TEST_TG_USER_ID));
+    const [e] = await h.db.select().from(enrollments).where(eq(enrollments.participantId, p.id));
+    expect(e.goal, 'цель осталась прежней').toBe('Намазды калтырбоо');
+  });
+
   it('первой участнице кнопки «оставить» нет', async () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
     await h.feed(textUpdate('/start m5', AT_0940_BISHKEK));
@@ -159,6 +186,8 @@ describe('язык клавиатуры', () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
     await startAndChooseBishkek();
     await h.feed(callbackUpdate('rules:yes'));
+    // Клавиатура приходит с приветствием, то есть после ответа о цели.
+    await h.feed(callbackUpdate('goal:later'));
 
     expect(lastMenu(), 'кыргызская клавиатура').toContain('🎥 Отчёт тапшыруу');
 
@@ -176,6 +205,7 @@ describe('язык клавиатуры', () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
     await startAndChooseBishkek();
     await h.feed(callbackUpdate('rules:yes'));
+    await h.feed(callbackUpdate('goal:later'));
     await h.feed(textUpdate('/til', AT_0940_BISHKEK));
     await h.feed(callbackUpdate('lang:ru'));
 

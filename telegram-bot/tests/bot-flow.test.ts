@@ -31,13 +31,15 @@ afterEach(async () => {
   h.reset();
 });
 
-async function registerInBishkek(): Promise<void> {
+/** Регистрация целиком. `goal: 'ask'` — оставить вопрос о цели открытым. */
+async function registerInBishkek(goal: 'later' | 'ask' = 'later'): Promise<void> {
   await h.feed(textUpdate('/start m5', AT_0940_BISHKEK));
   await h.feed(callbackUpdate('lang:kg'));
   // Кнопка пресета приходит обычным текстом реплай-клавиатуры.
   await h.feed(textUpdate('Бишкек · UTC+6', AT_0940_BISHKEK));
   // Правила принимаются до записи — без этого марафона у неё нет.
   await h.feed(callbackUpdate('rules:yes'));
+  if (goal === 'later') await h.feed(callbackUpdate('goal:later'));
 }
 
 describe('регистрация и первый отчёт', () => {
@@ -166,8 +168,6 @@ describe('отказы', () => {
   it('произвольный текст тоже получает «только видеокружок»', async () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
     await registerInBishkek();
-    // Первое сообщение после записи — ответ на вопрос о цели марафона.
-    await h.feed(textUpdate('Намазды улантуу', AT_0940_BISHKEK));
     h.reset();
 
     await h.feed(textUpdate('салам', AT_0940_BISHKEK));
@@ -176,11 +176,11 @@ describe('отказы', () => {
 
   it('цель спрашивается при записи и сохраняется', async () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
-    await registerInBishkek();
+    await registerInBishkek('ask');
     expect(h.lastText()).toMatch(/максат|цель/i);
 
     await h.feed(textUpdate('Намазды калтырбоо', AT_0940_BISHKEK));
-    expect(h.lastText()).toContain('Намазды калтырбоо');
+    expect(h.texts().join('\n')).toContain('Намазды калтырбоо');
 
     // «Максаттарым» показывает её же.
     h.reset();
@@ -190,7 +190,7 @@ describe('отказы', () => {
 
   it('нажатая кнопка меню не записывается в цель', async () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
-    await registerInBishkek();
+    await registerInBishkek('ask');
     // Вопрос о цели открыт, но участница жмёт кнопку — это кнопка, а не цель.
     h.reset();
     await h.feed(textUpdate('😎 Өзүм жөнүндө', AT_0940_BISHKEK));

@@ -148,11 +148,14 @@ export function rulesKeyboard(accept: string, decline: string): InlineKeyboard {
   return new InlineKeyboard().text(accept, 'rules:yes').row().text(decline, 'rules:no');
 }
 
-/** Под вопросом о цели: записать сейчас или вернуться позже. */
-export function goalKeyboard(writeLabel: string, laterLabel?: string): InlineKeyboard {
-  const kb = new InlineKeyboard().text(writeLabel, 'goal:write');
-  if (laterLabel) kb.text(laterLabel, 'goal:later');
-  return kb;
+/** Под вопросом о цели: оставить прежнюю или отложить. */
+export function goalAskKeyboard(label: string, data: 'goal:keep' | 'goal:later'): InlineKeyboard {
+  return new InlineKeyboard().text(label, data);
+}
+
+/** В «Максаттарым» и «Өзүм жөнүндө»: записать цель или изменить её. */
+export function goalKeyboard(writeLabel: string): InlineKeyboard {
+  return new InlineKeyboard().text(writeLabel, 'goal:write');
 }
 
 /** «Өзүм жөнүндө»: узур на сегодня и правка цели. */
