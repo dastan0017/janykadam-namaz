@@ -79,6 +79,9 @@ export const marathons = pgTable(
     streakEvery: integer('streak_every').notNull().default(7),
     latePasses: integer('late_passes').notNull().default(2),
     excusedDays: integer('excused_days').notNull().default(3),
+    /** Свои правила марафона; пусто — действуют общие из текстов бота. */
+    rulesKg: text('rules_kg'),
+    rulesRu: text('rules_ru'),
     pauseAllowed: boolean('pause_allowed').notNull().default(true),
     remindMorning: time('remind_morning'),
     remindEvening: time('remind_evening'),
@@ -200,6 +203,8 @@ export const enrollments = pgTable(
     status: enrollmentStatus('status').notNull().default('active'),
     /** Зачем пришла в марафон — своими словами, спрашивается при записи. */
     goal: text('goal'),
+    /** Когда согласилась с правилами марафона. Без согласия записи нет. */
+    rulesAcceptedAt: timestamp('rules_accepted_at', { withTimezone: true }),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
     pausedUntil: date('paused_until'),
     points: integer('points').notNull().default(0),

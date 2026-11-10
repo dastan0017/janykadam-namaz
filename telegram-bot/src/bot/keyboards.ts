@@ -135,6 +135,11 @@ export function notifyNextKeyboard(label: string): InlineKeyboard {
 }
 
 /** Кнопка «Сдать для «марафон»» в напоминаниях, когда марафонов несколько. */
+/** Правила марафона: согласиться или отказаться. Без согласия записи нет. */
+export function rulesKeyboard(accept: string, decline: string): InlineKeyboard {
+  return new InlineKeyboard().text(accept, 'rules:yes').row().text(decline, 'rules:no');
+}
+
 /** Под вопросом о цели: записать сейчас или вернуться позже. */
 export function goalKeyboard(writeLabel: string, laterLabel?: string): InlineKeyboard {
   const kb = new InlineKeyboard().text(writeLabel, 'goal:write');

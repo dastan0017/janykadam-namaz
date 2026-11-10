@@ -36,6 +36,8 @@ async function registerInBishkek(): Promise<void> {
   await h.feed(callbackUpdate('lang:kg'));
   // Кнопка пресета приходит обычным текстом реплай-клавиатуры.
   await h.feed(textUpdate('Бишкек · UTC+6', AT_0940_BISHKEK));
+  // Правила принимаются до записи — без этого марафона у неё нет.
+  await h.feed(callbackUpdate('rules:yes'));
 }
 
 describe('регистрация и первый отчёт', () => {

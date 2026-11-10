@@ -111,6 +111,7 @@ describe('узур и цель через бота', () => {
     await h.feed(textUpdate('/start m5', AT_0940_BISHKEK));
     await h.feed(callbackUpdate('lang:kg'));
     await h.feed(textUpdate('Бишкек · UTC+6', AT_0940_BISHKEK));
+    await h.feed(callbackUpdate('rules:yes'));
     await h.feed(textUpdate('Намазды калтырбоо', AT_0940_BISHKEK));
   }
 

@@ -4,6 +4,7 @@ import { run, type RunnerHandle } from '@grammyjs/runner';
 import { Bot, BotError, GrammyError, HttpError, session } from 'grammy';
 import { env } from '../config/env';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
+import { matchLegacyMenu } from '../domain/menu';
 import { splitMessage } from '../domain/text';
 import { ParticipantsService } from '../services/participants.service';
 import { SettingsService } from '../services/settings.service';
@@ -157,8 +158,13 @@ export class BotService implements OnModuleDestroy {
     }
 
     // Кнопки главной клавиатуры: надписи лежат в bot_texts, поэтому нажатие
-    // узнаём по тексту, а не по месту кнопки в ряду.
-    switch (await this.settings.menuAction(text)) {
+    // узнаём по тексту, а не по месту кнопки в ряду. Старую клавиатуру тоже
+    // узнаём — и подменяем её новой, иначе кнопка молчала бы до перерегистрации.
+    const current = await this.settings.menuAction(text);
+    const legacy = current ? null : matchLegacyMenu(text);
+    if (legacy) await this.registration.showMainKeyboard(ctx);
+
+    switch (current ?? legacy) {
       case 'report':
         return this.commands.onOtchet(ctx);
       case 'reports':

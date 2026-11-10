@@ -49,6 +49,9 @@ export interface MarathonDto {
   remindMorning: string | null;
   remindEvening: string | null;
   skipSubmitted: boolean;
+  /** Свои правила марафона; пусто — действуют общие из текстов бота. */
+  rulesKg: string | null;
+  rulesRu: string | null;
   createdAt: string;
   /** Включённые намазы, в порядке библиотеки. */
   namazIds?: string[];
@@ -139,6 +142,8 @@ export interface ParticipantRowDto {
   reachedDay7: boolean;
   /** Зачем пришла в марафон — её слова, спрошенные при записи. */
   goal: string | null;
+  /** Когда согласилась с правилами марафона. */
+  rulesAcceptedAt: string | null;
 }
 
 export interface LedgerEntryDto {

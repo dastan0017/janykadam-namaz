@@ -123,6 +123,8 @@ export interface Participant {
   d7: boolean;
   /** Зачем пришла в марафон — её слова из бота. Пусто, если не ответила. */
   goal: string;
+  /** Дата согласия с правилами, `YYYY-MM-DD`. Пусто — согласия нет. */
+  rulesAt: string;
 }
 
 export interface LedgerEntry {
@@ -160,6 +162,9 @@ export interface Marathon {
   remindMorning: string;
   remindEvening: string;
   skipSubmitted: boolean;
+  /** Свои правила марафона. Пусто — действуют общие из текстов бота. */
+  rulesKg: string;
+  rulesRu: string;
   /** Итоговое число участниц завершённого марафона. */
   reported?: number;
   /**

@@ -313,6 +313,8 @@ export class ParticipantsController {
         joinedAt: enrollments.joinedAt,
         /** Зачем пришла в марафон — куратору это видно в карточке. */
         goal: enrollments.goal,
+        /** Когда согласилась с правилами: обязательства у марафона серьёзные. */
+        rulesAcceptedAt: enrollments.rulesAcceptedAt,
       })
       .from(enrollments)
       .innerJoin(participants, eq(participants.id, enrollments.participantId))

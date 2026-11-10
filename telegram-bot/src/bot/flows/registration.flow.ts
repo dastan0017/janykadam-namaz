@@ -14,7 +14,7 @@ import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import {
   changeLocationKeyboard, languageKeyboard, locationKeyboard, mainKeyboard,
-  notifyNextKeyboard, searchResultsKeyboard,
+  notifyNextKeyboard, rulesKeyboard, searchResultsKeyboard,
 } from '../keyboards';
 
 const PRAYER_LABELS_RU: Record<string, string> = {
@@ -46,6 +46,8 @@ export class RegistrationFlow {
     bot.callbackQuery('zona:change', (ctx) => this.askLocation(ctx));
     bot.callbackQuery(/^geo:(.+)$/, (ctx) => this.onSearchPick(ctx));
     bot.callbackQuery('next:yes', (ctx) => this.onNotifyNext(ctx));
+    bot.callbackQuery('rules:yes', (ctx) => this.onRulesAccept(ctx));
+    bot.callbackQuery('rules:no', (ctx) => this.onRulesDecline(ctx));
 
     // Геолокация принимается в любой момент, не только через кнопку.
     bot.on('message:location', (ctx) => this.onLocationMessage(ctx));
@@ -238,6 +240,42 @@ export class RegistrationFlow {
     }
   }
 
+  /* ───────── правила марафона ───────── */
+
+  /**
+   * Правила показываются до записи: участница берёт на себя обязательства,
+   * и отказ не должен оставлять её в марафоне. Текст — свой у марафона, а
+   * если его нет, общий из текстов бота.
+   */
+  private async askRules(ctx: Ctx, marathon: { id: string; name: string; rulesKg: string | null; rulesRu: string | null }): Promise<void> {
+    const own = ctx.lang === 'kg' ? marathon.rulesKg : marathon.rulesRu;
+    const other = ctx.lang === 'kg' ? marathon.rulesRu : marathon.rulesKg;
+    const rules = own?.trim() || other?.trim() || (await ctx.t('marathon_rules'));
+
+    ctx.session.pendingMarathonId = marathon.id;
+    await ctx.reply(`${await ctx.t('rules_ask', { марафон: marathon.name })}\n\n${rules}`, {
+      reply_markup: rulesKeyboard(await ctx.t('btn_rules_accept'), await ctx.t('btn_rules_decline')),
+    });
+  }
+
+  private async onRulesAccept(ctx: Ctx): Promise<void> {
+    await ctx.answerCallbackQuery();
+    const marathonId = ctx.session.pendingMarathonId;
+    if (!marathonId || !ctx.participant) return;
+
+    const marathon = await this.participants.marathonById(marathonId);
+    if (!marathon) return;
+
+    await ctx.reply(await ctx.t('rules_accepted'));
+    await this.finishEnroll(ctx, marathon);
+  }
+
+  private async onRulesDecline(ctx: Ctx): Promise<void> {
+    await ctx.answerCallbackQuery();
+    ctx.session.pendingMarathonId = undefined;
+    await ctx.reply(await ctx.t('rules_declined'));
+  }
+
   /* ───────── запись в марафон ───────── */
 
   private async enrollAndWelcome(ctx: Ctx, marathonId: string): Promise<void> {
@@ -246,9 +284,25 @@ export class RegistrationFlow {
     const marathon = await this.participants.marathonById(marathonId);
     if (!marathon) return;
 
+    // Уже согласившуюся повторно не спрашиваем: она возвращается в свой марафон.
+    const existing = await this.participants.enrollmentOf(ctx.participant.id, marathonId);
+    if (!existing?.rulesAcceptedAt) {
+      await this.askRules(ctx, marathon);
+      return;
+    }
+
+    await this.finishEnroll(ctx, marathon);
+  }
+
+  private async finishEnroll(ctx: Ctx, marathon: { id: string; name: string; status: string; startDate: string }): Promise<void> {
+    if (!ctx.participant) return;
+
+    const marathonId = marathon.id;
     const enrollment = await this.participants.enroll(ctx.participant.id, marathonId);
+    await this.participants.markRulesAccepted(enrollment.id);
     await this.participants.setActiveEnrollment(ctx.participant.id, enrollment.id);
     ctx.participant.activeEnrollmentId = enrollment.id;
+    ctx.session.pendingMarathonId = undefined;
 
     if (marathon.status === 'recruiting') {
       const date = DateTime.fromISO(marathon.startDate).setLocale(ctx.lang === 'kg' ? 'ky' : 'ru').toFormat('d MMMM');

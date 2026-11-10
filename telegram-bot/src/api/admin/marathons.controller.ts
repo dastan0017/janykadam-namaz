@@ -35,6 +35,9 @@ const marathonPatch = marathonBody.partial().extend({
   remindMorning: z.string().nullable().optional(),
   remindEvening: z.string().nullable().optional(),
   skipSubmitted: z.boolean().optional(),
+  // Пустая строка — «свои правила убрали», тогда действуют общие.
+  rulesKg: z.string().nullable().optional(),
+  rulesRu: z.string().nullable().optional(),
 });
 
 @Controller('api')

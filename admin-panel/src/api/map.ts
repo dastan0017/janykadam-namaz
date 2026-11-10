@@ -48,6 +48,8 @@ export function toMarathon(dto: MarathonDto): Marathon {
     remindMorning: (dto.remindMorning ?? '').slice(0, 5),
     remindEvening: (dto.remindEvening ?? '').slice(0, 5),
     skipSubmitted: dto.skipSubmitted,
+    rulesKg: dto.rulesKg ?? '',
+    rulesRu: dto.rulesRu ?? '',
     reported: dto.stats?.total,
     stats: dto.stats && {
       total: dto.stats.total,
@@ -78,6 +80,8 @@ const MARATHON_FIELD: Record<string, string> = {
   remindMorning: 'remindMorning',
   remindEvening: 'remindEvening',
   skipSubmitted: 'skipSubmitted',
+  rulesKg: 'rulesKg',
+  rulesRu: 'rulesRu',
 };
 
 /** `{ excused: 3 }` → `{ excusedDays: 3 }`. Поля без пары на бэкенде отбрасываются. */
@@ -224,6 +228,7 @@ export function toParticipant(dto: ParticipantRowDto): Participant {
     joined: localDate(tz || 'Asia/Bishkek', new Date(dto.joinedAt)),
     d7: dto.reachedDay7,
     goal: dto.goal ?? '',
+    rulesAt: dto.rulesAcceptedAt ? dto.rulesAcceptedAt.slice(0, 10) : '',
   };
 }
 

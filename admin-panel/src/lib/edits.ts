@@ -15,6 +15,7 @@ import type { AppState, EditKind, Snapshot } from '../types';
 export const MARATHON_KEYS = [
   'name', 'start', 'end', 'lang', 'regOpen', 'pointsDefault', 'streakBonus', 'streakEvery',
   'latePasses', 'excused', 'pauseAllowed', 'remindMorning', 'remindEvening', 'skipSubmitted',
+  'rulesKg', 'rulesRu',
 ] as const;
 
 /** `active` правится переключателем в шапке и сохраняется сразу — его здесь нет. */

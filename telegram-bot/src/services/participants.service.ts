@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gt, inArray, lt, ne, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, lt, ne, or } from 'drizzle-orm';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { enrollments, excusedDays, marathons, participants } from '../db/schema';
 import type { Location } from '../domain/location';
@@ -141,6 +141,24 @@ export class ParticipantsService {
 
     const [created] = await this.db.insert(enrollments).values({ participantId, marathonId }).returning();
     return created;
+  }
+
+  /** Запись в конкретный марафон, если она уже есть. */
+  async enrollmentOf(participantId: string, marathonId: string): Promise<Enrollment | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(enrollments)
+      .where(and(eq(enrollments.participantId, participantId), eq(enrollments.marathonId, marathonId)))
+      .limit(1);
+    return row;
+  }
+
+  /** Согласие с правилами. Повторное не трогаем: важна первая дата. */
+  async markRulesAccepted(enrollmentId: string): Promise<void> {
+    await this.db
+      .update(enrollments)
+      .set({ rulesAcceptedAt: new Date() })
+      .where(and(eq(enrollments.id, enrollmentId), isNull(enrollments.rulesAcceptedAt)));
   }
 
   async setActiveEnrollment(participantId: string, enrollmentId: string): Promise<void> {

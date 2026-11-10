@@ -18,6 +18,22 @@ export const MENU: { action: MenuAction; textKey: string }[] = [
   { action: 'help', textKey: 'btn_menu_help' },
 ];
 
+/**
+ * Клавиатура прошлой версии. Telegram держит её в чате, пока бот не пришлёт
+ * новую, поэтому участница, зарегистрированная до обновления меню, продолжает
+ * жать старые кнопки. Узнаём их, отвечаем по делу и заодно шлём новую.
+ */
+const LEGACY: Record<string, MenuAction> = {
+  '🎥 Отчёт тапшыруу': 'report',
+  '⭐ Баллдарым': 'reports',
+  '🕐 Убакыт алкагы': 'zone',
+  '❓ Жардам': 'help',
+};
+
+export function matchLegacyMenu(text: string): MenuAction | null {
+  return LEGACY[text.trim()] ?? null;
+}
+
 /** Надпись нажатой кнопки → действие. Сравнение без учёта регистра и пробелов по краям. */
 export function matchMenu(text: string, labels: { action: MenuAction; labels: string[] }[]): MenuAction | null {
   const needle = text.trim().toLowerCase();

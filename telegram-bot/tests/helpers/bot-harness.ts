@@ -289,6 +289,8 @@ export async function registerInBishkek(h: Harness, at: Date): Promise<void> {
   await h.feed(callbackUpdate('lang:kg'));
   // Кнопка пресета приходит обычным текстом реплай-клавиатуры.
   await h.feed(textUpdate('Бишкек · UTC+6', at));
+  // Без согласия с правилами записи в марафон не будет.
+  await h.feed(callbackUpdate('rules:yes'));
 }
 
 /** Запись тестовой участницы, зарегистрированной через бота. */

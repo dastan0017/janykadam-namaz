@@ -49,7 +49,7 @@ const participant = (
   last: number,
   today: string[],
   extra: Partial<Participant> = {},
-): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: '2026-10-20', d7: true, goal: '', ...extra });
+): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: '2026-10-20', d7: true, goal: '', rulesAt: '2026-10-20', ...extra });
 
 /** Свои темы марафона. Намазы (t1–t6, t11) — в фиксированной библиотеке NAMAZ. */
 const topics5 = (): Topic[] => [
@@ -117,6 +117,8 @@ const marathonDefaults = {
   remindMorning: '05:30',
   remindEvening: '21:00',
   skipSubmitted: true,
+  rulesKg: '',
+  rulesRu: '',
 };
 
 export function seed(): AppState {
