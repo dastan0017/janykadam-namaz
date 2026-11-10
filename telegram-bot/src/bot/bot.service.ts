@@ -11,6 +11,7 @@ import type { Update } from 'grammy/types';
 import type { Ctx } from './context';
 import { isPrivate } from './context';
 import { CommandsFlow } from './flows/commands.flow';
+import { ProfileFlow } from './flows/profile.flow';
 import { RegistrationFlow } from './flows/registration.flow';
 import { ReportFlow } from './flows/report.flow';
 import { initialSession, PgSessionStorage, type SessionData } from './session';
@@ -31,6 +32,7 @@ export class BotService implements OnModuleDestroy {
     private readonly registration: RegistrationFlow,
     private readonly report: ReportFlow,
     private readonly commands: CommandsFlow,
+    private readonly profile: ProfileFlow,
   ) {
     this.bot = new Bot<Ctx>(env().BOT_TOKEN);
     this.configure();
@@ -62,6 +64,7 @@ export class BotService implements OnModuleDestroy {
     this.registration.register(this.bot);
     this.report.register(this.bot);
     this.commands.register(this.bot);
+    this.profile.register(this.bot);
 
     // Кнопки главной клавиатуры и ввод в активном флоу.
     this.bot.on('message:text', (ctx) => this.onText(ctx));
@@ -118,6 +121,7 @@ export class BotService implements OnModuleDestroy {
         tgUserId: String(ctx.from.id),
         chatId: String(ctx.chat?.id ?? ctx.from.id),
         firstName: ctx.from.first_name ?? '',
+        lastName: ctx.from.last_name ?? '',
         username: ctx.from.username,
       });
       ctx.lang = ctx.participant.lang;
@@ -152,22 +156,26 @@ export class BotService implements OnModuleDestroy {
       if (await this.registration.onLocationText(ctx, text)) return;
     }
 
-    // Кнопки главной клавиатуры.
-    const { menu } = await this.settings.getSettings();
-    // Четыре кнопки ведут в /otchet, /ball, /zona и /help — больше в меню ничего нет.
-    const index = menu.indexOf(text);
-    if (index >= 0) {
-      switch (index) {
-        case 0:
-          return this.commands.onOtchet(ctx);
-        case 1:
-          return this.commands.onBall(ctx);
-        case 2:
-          return this.registration.askLocation(ctx);
-        case 3:
-          return this.commands.onHelp(ctx);
-      }
+    // Кнопки главной клавиатуры: надписи лежат в bot_texts, поэтому нажатие
+    // узнаём по тексту, а не по месту кнопки в ряду.
+    switch (await this.settings.menuAction(text)) {
+      case 'report':
+        return this.commands.onOtchet(ctx);
+      case 'reports':
+        return this.commands.onBall(ctx);
+      case 'goals':
+        return this.profile.onGoals(ctx);
+      case 'about':
+        return this.profile.onAbout(ctx);
+      case 'zone':
+        return this.registration.askLocation(ctx);
+      case 'help':
+        return this.commands.onHelp(ctx);
     }
+
+    // Цель марафона — такой же ожидаемый ответ, как ответ на вопрос темы.
+    // Разбирается после меню: нажатую кнопку нельзя записать в цель.
+    if (await this.profile.onGoalText(ctx, text)) return;
 
     await this.sayVideoOnly(ctx);
   }

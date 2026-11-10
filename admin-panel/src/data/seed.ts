@@ -49,7 +49,7 @@ const participant = (
   last: number,
   today: string[],
   extra: Partial<Participant> = {},
-): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: '2026-10-20', d7: true, ...extra });
+): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: '2026-10-20', d7: true, goal: '', ...extra });
 
 /** Свои темы марафона. Намазы (t1–t6, t11) — в фиксированной библиотеке NAMAZ. */
 const topics5 = (): Topic[] => [
@@ -209,7 +209,7 @@ export function seed(): AppState {
       desc: 'Жаңы Кадам жамаатынын марафон боту. Күн сайын видеокружок менен отчёт тапшырып, рухий тартипти бекемдеңиз.',
       shortDesc: 'Марафондор боту Janykadam',
       commands: '/otchet — что можно сдать сейчас\n/ball — мои баллы\n/zona — место и время\n/marafon — сменить марафон\n/pauza — пауза\n/tahajjud — напоминания о Тахаджуде\n/til — язык\n/help — помощь',
-      menu: ['🎥 Отчёт тапшыруу', '⭐ Баллдарым', '🕐 Убакыт алкагы', '❓ Жардам'],
+      menu: ['🎥 Отчёт тапшыруу', '✅ Отчётторум', '🤲 Максаттарым', '😎 Өзүм жөнүндө', '🕐 Убакыт алкагы', '❓ Жардам'],
       quietFrom: '22:30',
       quietTo: '04:30',
       capPerDay: 6,

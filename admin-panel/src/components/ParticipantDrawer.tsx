@@ -83,6 +83,18 @@ export function ParticipantDrawer() {
           </div>
         </div>
 
+        {/* Цель — её слова при записи: с ней разговор куратора звучит иначе */}
+        {p.goal ? (
+          <div className="card" style={{ padding: '10px 12px', background: 'var(--bg)' }}>
+            <div className="overline" style={{ marginBottom: 4 }}>
+              🤲 Цель в марафоне
+            </div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{p.goal}</div>
+          </div>
+        ) : (
+          <div className="sub">🤲 Цель не записана — бот спрашивает её при входе в марафон.</div>
+        )}
+
         {p.blocked ? (
           <div className="banner-error">Заблокировала бота — сообщения и напоминания не доходят. Статус обновится, когда она снова напишет боту.</div>
         ) : null}

@@ -1,6 +1,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { BOT_TEXTS } from '../src/db/seed-texts';
+import { MENU } from '../src/domain/menu';
 
 /**
  * Пункт 13 чек-листа: удалённых сущностей не должно быть нигде — ни в коде,
@@ -78,12 +80,12 @@ describe('удалённые возможности отсутствуют', () 
     expect(schema).not.toMatch(/file_path|filePath|downloaded/i);
   });
 
-  it('в меню бота ровно четыре кнопки и в них нет удалённых пунктов', () => {
-    const seed = readFileSync(join(ROOT, 'src/db/seed.ts'), 'utf8');
-    const match = /const MENU_KG = \[([^\]]+)\]/.exec(seed);
-    expect(match, 'меню найдено в сиде').toBeTruthy();
-    const items = match![1].split(',').filter((s) => s.trim());
-    expect(items).toHaveLength(4);
-    expect(match![1]).not.toMatch(/кадам|командам/i);
+  it('в меню бота шесть кнопок и в них нет удалённых пунктов', () => {
+    expect(MENU).toHaveLength(6);
+
+    // У каждой кнопки есть надпись в текстах: без неё бот не узнает нажатие.
+    const labels = MENU.map((m) => BOT_TEXTS.find((x) => x.key === m.textKey));
+    expect(labels.every((x) => x && x.kg.trim() && x.ru.trim())).toBe(true);
+    expect(labels.map((x) => `${x!.kg} ${x!.ru}`).join(' ')).not.toMatch(/кадам|командам/i);
   });
 });

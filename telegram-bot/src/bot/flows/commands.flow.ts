@@ -88,23 +88,27 @@ export class CommandsFlow {
     const tz = ctx.participant.tz ?? 'UTC';
     const status = await this.reports.todayStatus(active, now);
     const done = status.filter((s) => s.done).length;
+    // Намазы в узур из знаменателя убираем: их сегодня не ждут.
+    const asked = status.filter((s) => !s.uzur).length;
 
     const summary = await ctx.t('points_summary', {
       баллы: active.enrollment.points,
       серия: active.enrollment.streak,
       сдано: done,
-      всего: status.length,
+      всего: asked,
     });
 
-    // По каждой теме: сдано, открыто, ещё откроется или упущено.
-    const lines = status.map(({ window: w, done }) => {
+    // По каждой теме: сдано, узур, открыто, ещё откроется или упущено.
+    const lines = status.map(({ window: w, done, uzur }) => {
       const icon = done
         ? '✅'
-        : now < w.opensAt
-          ? `🕒 ${this.hhmm(w.opensAt, tz)}`
-          : now < w.closesAt
-            ? `⏳ ${this.hhmm(w.closesAt, tz)}`
-            : '✖️';
+        : uzur
+          ? '🤍'
+          : now < w.opensAt
+            ? `🕒 ${this.hhmm(w.opensAt, tz)}`
+            : now < w.closesAt
+              ? `⏳ ${this.hhmm(w.closesAt, tz)}`
+              : '✖️';
       return `${icon} ${w.emoji} ${this.name(w, ctx.lang)}`;
     });
 

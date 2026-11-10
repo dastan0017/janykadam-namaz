@@ -5,6 +5,7 @@ import { NAMAZ_TOPICS, KAZA_QUESTION } from '../domain/namaz';
 import { ZERO_TUNE, methodVersion } from '../domain/prayer';
 import * as s from './schema';
 import { BOT_TEXTS } from './seed-texts';
+import { MENU } from '../domain/menu';
 import { assertProjectDatabase, loadDotenv } from '../config/dotenv';
 
 /**
@@ -21,7 +22,8 @@ const PRESETS = [
   { position: 6, labelRu: 'Нью-Йорк', labelKg: 'Нью-Йорк', lat: 40.71, lng: -74.01, tz: 'America/New_York' },
 ];
 
-const MENU_KG = ['🎥 Отчёт тапшыруу', '⭐ Баллдарым', '🕐 Убакыт алкагы', '❓ Жардам'];
+// Надписи кнопок — те же тексты, что видит участница: держим их в одном месте.
+const MENU_KG = MENU.map((m) => BOT_TEXTS.find((x) => x.key === m.textKey)?.kg ?? '');
 
 const COMMANDS = [
   { command: 'otchet', description: 'Что можно сдать сейчас' },

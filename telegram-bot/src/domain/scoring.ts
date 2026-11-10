@@ -14,8 +14,10 @@ export interface DayCompletionInput {
   mandatory: WindowInstance[];
   /** Темы, по которым отчёт за этот день есть (поздние тоже считаются). */
   reportedTopicIds: ReadonlySet<string>;
-  /** День отмечен куратором как уважительный. */
+  /** День отмечен куратором как уважительный — не требуется ничего. */
   excused: boolean;
+  /** Узур: сегодня не требуются намазы. Остальные темы в силе. */
+  namazExcused?: boolean;
   /** В этот день участница была на паузе. */
   paused: boolean;
   /** Момент регистрации: в день входа обязательны только окна, открывшиеся после него. */
@@ -28,11 +30,16 @@ export interface DayCompletionInput {
  *
  * В день регистрации обязательны только те окна, которые открылись уже после
  * того, как она вошла: нельзя требовать Багымдат у той, кто зарегистрировалась днём.
+ *
+ * Узур — не целый уважительный день: намазы в этот день не требуются вовсе,
+ * а свои темы марафона сдаются как обычно.
  */
 export function isDayComplete(input: DayCompletionInput): boolean {
   if (input.excused || input.paused) return true;
 
-  const required = input.mandatory.filter((w) => w.opensAt.getTime() >= input.joinedAt.getTime());
+  const required = input.mandatory
+    .filter((w) => !(input.namazExcused && w.topicKind === 'namaz'))
+    .filter((w) => w.opensAt.getTime() >= input.joinedAt.getTime());
   if (required.length === 0) return true;
 
   return required.every((w) => input.reportedTopicIds.has(w.topicId));

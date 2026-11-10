@@ -208,6 +208,9 @@ export class MiscController {
     // Имя и username бота живут в Telegram, а не в базе: панель показывает
     // deep link `t.me/<username>?start=<код>` и даёт править имя.
     const settings = await this.settings.getSettings();
+    // Надписи кнопок меню лежат в текстах бота и правятся там же: колонка
+    // `menu` осталась от первой версии и панели больше ничего не говорит.
+    const menu = await this.settings.menu('kg');
     let username = '';
     let name = '';
     try {
@@ -216,7 +219,7 @@ export class MiscController {
     } catch {
       // Бот ещё не инициализирован (или Telegram недоступен) — панель покажет прочерк.
     }
-    return { ...settings, username, name };
+    return { ...settings, menu, username, name };
   }
 
   @Patch('bot/settings')
@@ -226,7 +229,6 @@ export class MiscController {
         quietFrom: z.string().optional(),
         quietTo: z.string().optional(),
         capPerDay: z.number().int().min(0).optional(),
-        menu: z.array(z.string()).optional(),
         commands: z.array(z.object({ command: z.string(), description: z.string() })).optional(),
         description: z.string().optional(),
         shortDescription: z.string().optional(),

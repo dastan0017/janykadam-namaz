@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt, ne, or } from 'drizzle-orm';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
-import { enrollments, marathons, participants } from '../db/schema';
+import { enrollments, excusedDays, marathons, participants } from '../db/schema';
 import type { Location } from '../domain/location';
-import type { Lang } from '../domain/text';
+import { shortName, type Lang } from '../domain/text';
 
 export type Participant = typeof participants.$inferSelect;
 export type Enrollment = typeof enrollments.$inferSelect;
@@ -15,6 +15,24 @@ export interface ActiveContext {
   marathon: Marathon;
 }
 
+export interface RatingRow {
+  place: number;
+  name: string;
+  points: number;
+  me: boolean;
+}
+
+export interface Rating {
+  total: number;
+  top: RatingRow[];
+  me: RatingRow;
+  /** Сколько участниц ниже в списке — «0 катышуучу артыңызда». */
+  behind: number;
+}
+
+/** Цель участницы не должна превращаться в сочинение: столько влезает в карточку. */
+export const GOAL_MAX_LENGTH = 200;
+
 @Injectable()
 export class ParticipantsService {
   constructor(@Inject(DRIZZLE) private readonly db: Db) {}
@@ -24,7 +42,7 @@ export class ParticipantsService {
     return row;
   }
 
-  async ensure(input: { tgUserId: string; chatId: string; firstName: string; username?: string }): Promise<Participant> {
+  async ensure(input: { tgUserId: string; chatId: string; firstName: string; lastName?: string; username?: string }): Promise<Participant> {
     const existing = await this.byTgUserId(input.tgUserId);
     if (existing) {
       // Имя и username в Telegram меняются; держим их свежими.
@@ -33,6 +51,7 @@ export class ParticipantsService {
         .set({
           chatId: input.chatId,
           firstName: input.firstName,
+          lastName: input.lastName ?? '',
           username: input.username ?? null,
           lastSeenAt: new Date(),
           // Любое входящее сообщение означает, что бот не заблокирован.
@@ -49,6 +68,7 @@ export class ParticipantsService {
         tgUserId: input.tgUserId,
         chatId: input.chatId,
         firstName: input.firstName,
+        lastName: input.lastName ?? '',
         username: input.username ?? null,
       })
       .returning();
@@ -180,5 +200,127 @@ export class ParticipantsService {
   async countActiveEnrollments(participantId: string): Promise<number> {
     const live = await this.liveEnrollments(participantId);
     return live.length;
+  }
+
+  /* ───────── цель участницы ───────── */
+
+  /** Зачем пришла в марафон. Цель своя у каждого марафона — они разные. */
+  async setGoal(enrollmentId: string, goal: string | null): Promise<void> {
+    const value = goal?.trim().slice(0, GOAL_MAX_LENGTH) || null;
+    await this.db.update(enrollments).set({ goal: value }).where(eq(enrollments.id, enrollmentId));
+  }
+
+  /* ───────── рейтинг ───────── */
+
+  /**
+   * Топ-5 марафона и место самой участницы.
+   *
+   * Место считается не выборкой всех строк, а подсчётом тех, кто выше: при
+   * двух сотнях участниц это один `count`, а не список в память. Равные баллы
+   * разводятся серией и временем входа — иначе номера скакали бы между вызовами.
+   */
+  async rating(marathonId: string, enrollmentId: string): Promise<Rating | null> {
+    const [mine] = await this.db.select().from(enrollments).where(eq(enrollments.id, enrollmentId)).limit(1);
+    if (!mine) return null;
+
+    const inMarathon = and(eq(enrollments.marathonId, marathonId), ne(enrollments.status, 'left'));
+
+    const [{ n: total }] = await this.db.select({ n: count() }).from(enrollments).where(inMarathon);
+
+    const [{ n: above }] = await this.db
+      .select({ n: count() })
+      .from(enrollments)
+      .where(
+        and(
+          inMarathon,
+          or(
+            gt(enrollments.points, mine.points),
+            and(eq(enrollments.points, mine.points), gt(enrollments.streak, mine.streak)),
+            and(
+              eq(enrollments.points, mine.points),
+              eq(enrollments.streak, mine.streak),
+              lt(enrollments.joinedAt, mine.joinedAt),
+            ),
+          ),
+        ),
+      );
+
+    const topRows = await this.db
+      .select({ id: enrollments.id, points: enrollments.points, firstName: participants.firstName, lastName: participants.lastName })
+      .from(enrollments)
+      .innerJoin(participants, eq(participants.id, enrollments.participantId))
+      .where(inMarathon)
+      .orderBy(desc(enrollments.points), desc(enrollments.streak), asc(enrollments.joinedAt))
+      .limit(5);
+
+    const [me] = await this.db
+      .select({ firstName: participants.firstName, lastName: participants.lastName })
+      .from(participants)
+      .where(eq(participants.id, mine.participantId))
+      .limit(1);
+
+    const place = above + 1;
+    return {
+      total,
+      top: topRows.map((r, i) => ({
+        place: i + 1,
+        name: shortName(r.firstName, r.lastName),
+        points: r.points,
+        me: r.id === enrollmentId,
+      })),
+      me: { place, name: shortName(me?.firstName ?? '', me?.lastName), points: mine.points, me: true },
+      behind: Math.max(0, total - place),
+    };
+  }
+
+  /* ───────── узур ───────── */
+
+  /**
+   * Чем закрыт день: `day` — уважительный день от куратора, снимает всё;
+   * `namaz` — узур, отмеченный самой участницей, снимает только намазы.
+   */
+  async excusedScopeOn(enrollmentId: string, dayKey: string): Promise<'day' | 'namaz' | null> {
+    const [row] = await this.db
+      .select({ scope: excusedDays.scope })
+      .from(excusedDays)
+      .where(and(eq(excusedDays.enrollmentId, enrollmentId), eq(excusedDays.dayKey, dayKey)))
+      .limit(1);
+    return row?.scope ?? null;
+  }
+
+  /** Узур-дни среди перечисленных — для фильтра намазов в списке и в оценке дня. */
+  async namazExcusedDays(enrollmentId: string, dayKeys: string[]): Promise<Set<string>> {
+    if (dayKeys.length === 0) return new Set();
+    const rows = await this.db
+      .select({ dayKey: excusedDays.dayKey })
+      .from(excusedDays)
+      .where(
+        and(
+          eq(excusedDays.enrollmentId, enrollmentId),
+          eq(excusedDays.scope, 'namaz'),
+          inArray(excusedDays.dayKey, dayKeys),
+        ),
+      );
+    return new Set(rows.map((r) => r.dayKey));
+  }
+
+  /** Отметить или снять узур на день. Уважительный день куратора не трогаем. */
+  async setNamazExcused(enrollmentId: string, dayKey: string, on: boolean): Promise<void> {
+    if (on) {
+      await this.db
+        .insert(excusedDays)
+        .values({ enrollmentId, dayKey, scope: 'namaz', markedBy: null })
+        .onConflictDoNothing();
+      return;
+    }
+    await this.db
+      .delete(excusedDays)
+      .where(
+        and(
+          eq(excusedDays.enrollmentId, enrollmentId),
+          eq(excusedDays.dayKey, dayKey),
+          eq(excusedDays.scope, 'namaz'),
+        ),
+      );
   }
 }

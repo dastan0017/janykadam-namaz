@@ -48,7 +48,7 @@ export function reminderInstant(opensAt: Date, closesAt: Date, offsetMin: number
 
 export interface ReminderDecision {
   send: boolean;
-  reason?: 'not_active' | 'paused' | 'blocked' | 'topic_off' | 'already_reported' | 'quiet' | 'cap' | 'opt_in' | 'window_closed';
+  reason?: 'not_active' | 'paused' | 'blocked' | 'topic_off' | 'already_reported' | 'quiet' | 'cap' | 'opt_in' | 'window_closed' | 'uzur';
 }
 
 export interface ReminderCheck {
@@ -65,6 +65,8 @@ export interface ReminderCheck {
   /** Тема требует согласия (Тахажуд). */
   optIn: boolean;
   optedIn: boolean;
+  /** Узур: напоминание о намазе сегодня неуместно. */
+  uzurNamaz?: boolean;
 }
 
 /**
@@ -77,6 +79,7 @@ export function decideReminder(c: ReminderCheck): ReminderDecision {
   if (c.paused) return { send: false, reason: 'paused' };
   if (c.blocked) return { send: false, reason: 'blocked' };
   if (!c.topicEnabled) return { send: false, reason: 'topic_off' };
+  if (c.uzurNamaz) return { send: false, reason: 'uzur' };
   if (c.alreadyReported) return { send: false, reason: 'already_reported' };
   if (c.windowClosed) return { send: false, reason: 'window_closed' };
 

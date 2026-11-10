@@ -164,10 +164,36 @@ describe('отказы', () => {
   it('произвольный текст тоже получает «только видеокружок»', async () => {
     vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
     await registerInBishkek();
+    // Первое сообщение после записи — ответ на вопрос о цели марафона.
+    await h.feed(textUpdate('Намазды улантуу', AT_0940_BISHKEK));
     h.reset();
 
     await h.feed(textUpdate('салам', AT_0940_BISHKEK));
     expect(h.lastText()).toMatch(/видеокружок менен гана|только видеокружком/);
+  });
+
+  it('цель спрашивается при записи и сохраняется', async () => {
+    vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
+    await registerInBishkek();
+    expect(h.lastText()).toMatch(/максат|цель/i);
+
+    await h.feed(textUpdate('Намазды калтырбоо', AT_0940_BISHKEK));
+    expect(h.lastText()).toContain('Намазды калтырбоо');
+
+    // «Максаттарым» показывает её же.
+    h.reset();
+    await h.feed(textUpdate('🤲 Максаттарым', AT_0940_BISHKEK));
+    expect(h.lastText()).toContain('Намазды калтырбоо');
+  });
+
+  it('нажатая кнопка меню не записывается в цель', async () => {
+    vi.useFakeTimers({ now: AT_0940_BISHKEK, toFake: ['Date'] });
+    await registerInBishkek();
+    // Вопрос о цели открыт, но участница жмёт кнопку — это кнопка, а не цель.
+    h.reset();
+    await h.feed(textUpdate('😎 Өзүм жөнүндө', AT_0940_BISHKEK));
+    expect(h.lastText()).not.toMatch(/сакталды|сохранена/i);
+    expect(h.lastText()).toMatch(/Рейтинг|рейтинг/);
   });
 
   it('без марафона кружок не принимается', async () => {

@@ -181,9 +181,16 @@ export function openWindowsAt(topics: EnabledTopics, at: Date, tz: string, praye
 }
 
 /** Ближайшее окно, которое откроется после `at`. */
-export function nextWindowAfter(topics: EnabledTopics, at: Date, tz: string, prayers: PrayerLookup): WindowInstance | null {
+export function nextWindowAfter(
+  topics: EnabledTopics,
+  at: Date,
+  tz: string,
+  prayers: PrayerLookup,
+  /** Что пропустить: в узур-день намазы не предлагаются и в подсказке «дальше». */
+  skip: (w: WindowInstance) => boolean = () => false,
+): WindowInstance | null {
   const future = windowsAround(topics, at, tz, prayers)
-    .filter((w) => w.opensAt.getTime() > at.getTime())
+    .filter((w) => w.opensAt.getTime() > at.getTime() && !skip(w))
     .sort((a, b) => a.opensAt.getTime() - b.opensAt.getTime());
   return future[0] ?? null;
 }

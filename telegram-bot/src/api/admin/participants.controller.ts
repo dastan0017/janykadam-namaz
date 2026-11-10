@@ -100,8 +100,11 @@ export class ParticipantsController {
   @Get('marathons/:id/participants.csv')
   async csv(@Param('id') marathonId: string, @Res() res: FastifyReply) {
     const rows = await this.rowsFor(marathonId);
-    const header = ['Имя', 'Telegram', 'Часовой пояс', 'Статус', 'Баллы', 'Серия', 'Лучшая серия'];
-    const lines = [header, ...rows.map((r) => [r.firstName, r.username ?? '', r.tz ?? '', r.status, r.points, r.streak, r.bestStreak])];
+    const header = ['Имя', 'Фамилия', 'Telegram', 'Часовой пояс', 'Статус', 'Баллы', 'Серия', 'Лучшая серия', 'Цель'];
+    const lines = [
+      header,
+      ...rows.map((r) => [r.firstName, r.lastName, r.username ?? '', r.tz ?? '', r.status, r.points, r.streak, r.bestStreak, r.goal ?? '']),
+    ];
 
     const csv = '﻿' + lines.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
     void res
@@ -159,6 +162,8 @@ export class ParticipantsController {
         opensAt: s.window.opensAt,
         closesAt: s.window.closesAt,
         done: s.done,
+        // Узур: намаз сегодня не требуется — отмечен самой участницей.
+        uzur: s.uzur,
       }));
     }
 
@@ -250,14 +255,18 @@ export class ParticipantsController {
     if (!enrollment) throw new NotFoundException('Запись не найдена');
 
     const [marathon] = await this.db.select().from(marathons).where(eq(marathons.id, marathonId)).limit(1);
-    const used = await this.db.select({ d: excusedDays.dayKey }).from(excusedDays).where(eq(excusedDays.enrollmentId, enrollment.id));
+    // Узур-дни лимита куратора не занимают: это разные вещи.
+    const used = await this.db
+      .select({ d: excusedDays.dayKey })
+      .from(excusedDays)
+      .where(and(eq(excusedDays.enrollmentId, enrollment.id), eq(excusedDays.scope, 'day')));
     if (used.length >= (marathon?.excusedDays ?? 0)) {
       throw new BadRequestException(`Уважительных дней больше нет (лимит ${marathon?.excusedDays})`);
     }
 
     await this.db
       .insert(excusedDays)
-      .values({ enrollmentId: enrollment.id, dayKey: day, markedBy: req.admin?.id ?? null })
+      .values({ enrollmentId: enrollment.id, dayKey: day, scope: 'day', markedBy: req.admin?.id ?? null })
       .onConflictDoNothing();
 
     await this.auth.audit(req.admin ?? null, 'excuse_day', 'enrollment', enrollment.id, { day });
@@ -289,6 +298,7 @@ export class ParticipantsController {
       .select({
         participantId: participants.id,
         firstName: participants.firstName,
+        lastName: participants.lastName,
         username: participants.username,
         tz: participants.tz,
         placeLabel: participants.placeLabel,
@@ -301,6 +311,8 @@ export class ParticipantsController {
         streak: enrollments.streak,
         bestStreak: enrollments.bestStreak,
         joinedAt: enrollments.joinedAt,
+        /** Зачем пришла в марафон — куратору это видно в карточке. */
+        goal: enrollments.goal,
       })
       .from(enrollments)
       .innerJoin(participants, eq(participants.id, enrollments.participantId))

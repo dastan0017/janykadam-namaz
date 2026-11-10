@@ -9,7 +9,8 @@ export type Step =
   | 'choose_location'
   | 'location_search'
   | 'answering'
-  | 'pause_length';
+  | 'pause_length'
+  | 'goal';
 
 export interface SessionData {
   step?: Step;

@@ -9,6 +9,7 @@ import { ParticipantsService } from '../../services/participants.service';
 import { PrayerService } from '../../services/prayer.service';
 import { ReportsService } from '../../services/reports.service';
 import { SettingsService } from '../../services/settings.service';
+import { ProfileFlow } from './profile.flow';
 import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import {
@@ -33,6 +34,7 @@ export class RegistrationFlow {
     private readonly prayer: PrayerService,
     private readonly reports: ReportsService,
     private readonly settings: SettingsService,
+    private readonly profile: ProfileFlow,
   ) {}
 
   register(bot: Composer<Ctx>): void {
@@ -252,6 +254,7 @@ export class RegistrationFlow {
       const date = DateTime.fromISO(marathon.startDate).setLocale(ctx.lang === 'kg' ? 'ky' : 'ru').toFormat('d MMMM');
       await ctx.reply(await ctx.t('marathon_not_started', { марафон: marathon.name, дата: date }));
       await this.showMainKeyboard(ctx);
+      if (!enrollment.goal) await this.profile.askGoal(ctx);
       return;
     }
 
@@ -285,6 +288,8 @@ export class RegistrationFlow {
       );
     }
     await this.showMainKeyboard(ctx);
+    // Цель — последний шаг записи: ответ на неё ждём обычным сообщением.
+    if (!enrollment.goal) await this.profile.askGoal(ctx);
   }
 
   private async onNotifyNext(ctx: Ctx): Promise<void> {
@@ -297,8 +302,6 @@ export class RegistrationFlow {
   }
 
   async showMainKeyboard(ctx: Ctx): Promise<void> {
-    const { menu } = await this.settings.getSettings();
-    const labels = menu.length ? menu : ['🎥', '⭐', '🕐', '❓'];
-    await ctx.reply(await ctx.t('record_hint'), { reply_markup: mainKeyboard(labels) });
+    await ctx.reply(await ctx.t('record_hint'), { reply_markup: mainKeyboard(await this.settings.menu(ctx.lang)) });
   }
 }

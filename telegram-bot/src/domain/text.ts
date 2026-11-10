@@ -81,6 +81,17 @@ export function splitMessage(text: string, limit = TELEGRAM_TEXT_LIMIT): string[
   return parts;
 }
 
+/**
+ * Имя для рейтинга: «Нургүл С.». В марафоне десяток Нургүл и Сезим, одного
+ * имени мало, а фамилию целиком показывать незачем — список читают все.
+ */
+export function shortName(firstName: string, lastName?: string | null): string {
+  const first = (firstName || '').trim();
+  const last = (lastName || '').trim();
+  if (!first) return last || '—';
+  return last ? `${first} ${[...last][0].toUpperCase()}.` : first;
+}
+
 /** Перечисление тем через запятую: «🌅 Багымдат (до 07:44), 📿 Зикир (до 23:00)». */
 export function joinTopics(items: { emoji: string; name: string; until?: string }[], untilWord = 'до'): string {
   return items.map((i) => (i.until ? `${i.emoji} ${i.name} (${untilWord} ${i.until})` : `${i.emoji} ${i.name}`)).join(', ');

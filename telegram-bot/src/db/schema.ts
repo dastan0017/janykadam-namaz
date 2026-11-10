@@ -25,6 +25,8 @@ export const topicKind = pgEnum('topic_kind', ['namaz', 'custom']);
 export const locationSource = pgEnum('location_source', ['preset', 'search', 'geo']);
 export const deliveryStatus = pgEnum('delivery_status', ['pending', 'sent', 'blocked', 'failed']);
 export const broadcastStatus = pgEnum('broadcast_status', ['draft', 'scheduled', 'sending', 'done', 'failed']);
+/** Чей день и что он снимает: куратор освобождает от всего, узур — только от намазов. */
+export const excusedScope = pgEnum('excused_scope', ['day', 'namaz']);
 
 /* ───────────────── доступ в панель ───────────────── */
 
@@ -168,6 +170,8 @@ export const participants = pgTable(
     tgUserId: text('tg_user_id').notNull(),
     chatId: text('chat_id').notNull(),
     firstName: text('first_name').notNull().default(''),
+    /** Нужна только для рейтинга: имён вроде «Нургүл» в марафоне десяток. */
+    lastName: text('last_name').notNull().default(''),
     username: text('username'),
     lang: langEnum('lang').notNull().default('kg'),
     /** Округлены до 2 знаков: это и ключ кэша, и требование приватности. */
@@ -194,6 +198,8 @@ export const enrollments = pgTable(
     participantId: uuid('participant_id').notNull().references(() => participants.id, { onDelete: 'cascade' }),
     marathonId: uuid('marathon_id').notNull().references(() => marathons.id, { onDelete: 'cascade' }),
     status: enrollmentStatus('status').notNull().default('active'),
+    /** Зачем пришла в марафон — своими словами, спрашивается при записи. */
+    goal: text('goal'),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
     pausedUntil: date('paused_until'),
     points: integer('points').notNull().default(0),
@@ -242,6 +248,8 @@ export const excusedDays = pgTable(
   {
     enrollmentId: uuid('enrollment_id').notNull().references(() => enrollments.id, { onDelete: 'cascade' }),
     dayKey: date('day_key').notNull(),
+    /** `day` — уважительный день от куратора, `namaz` — узур, отмеченный самой участницей. */
+    scope: excusedScope('scope').notNull().default('day'),
     markedBy: uuid('marked_by').references(() => adminUsers.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

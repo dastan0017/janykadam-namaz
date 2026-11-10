@@ -7,7 +7,7 @@ import {
   closedWindowsOfDay, dayEvaluationAt, isoWeekKey, localDateShift, nextWindowAfter,
   openWindowsAt, toLocalDate, windowsForDay, type EnabledTopics, type WindowInstance,
 } from '../domain/windows';
-import type { ActiveContext } from './participants.service';
+import { ParticipantsService, type ActiveContext } from './participants.service';
 import { PrayerService } from './prayer.service';
 import { TopicsService } from './topics.service';
 
@@ -30,6 +30,7 @@ export class ReportsService {
     @Inject(DRIZZLE) private readonly db: Db,
     private readonly topics: TopicsService,
     private readonly prayer: PrayerService,
+    private readonly participants: ParticipantsService,
   ) {}
 
   /** Три локальные даты вокруг момента: окна пересекают полночь в обе стороны. */
@@ -76,6 +77,8 @@ export class ReportsService {
 
     const reported = await this.reportedKeys(enrollment.id, dates);
     const today = toLocalDate(at, tz);
+    // Узур: намазы этого дня не предлагаем вовсе — сдавать их незачем.
+    const uzur = await this.participants.namazExcusedDays(enrollment.id, dates);
 
     const weeklyIds = new Set(enabled.custom.filter((c) => c.freq === 'weekly').map((c) => c.id));
     const weekDone = weeklyIds.size
@@ -83,7 +86,9 @@ export class ReportsService {
       : new Set<string>();
 
     const notYet = (w: WindowInstance) =>
-      !reported.has(`${w.topicId}|${w.dayKey}`) && !(weeklyIds.has(w.topicId) && weekDone.has(w.topicId));
+      !reported.has(`${w.topicId}|${w.dayKey}`) &&
+      !(weeklyIds.has(w.topicId) && weekDone.has(w.topicId)) &&
+      !(w.topicKind === 'namaz' && uzur.has(w.dayKey));
 
     const open = openWindowsAt(enabled, at, tz, lookup).filter(notYet);
 
@@ -103,16 +108,17 @@ export class ReportsService {
 
   /** Ближайшее окно после момента — для подсказки «следующая тема в HH:MM». */
   async nextWindow(ctx: ActiveContext, at: Date): Promise<WindowInstance | null> {
-    const { participant, marathon } = ctx;
+    const { participant, enrollment, marathon } = ctx;
     if (!participant.lat || !participant.lng || !participant.tz) return null;
     const enabled = await this.topics.enabledFor(marathon.id);
     const dates = this.datesAround(at, participant.tz);
     const lookup = await this.prayer.lookupFor(participant.lat, participant.lng, [...dates, localDateShift(dates[2], 1)]);
-    return nextWindowAfter(enabled, at, participant.tz, lookup);
+    const uzur = await this.participants.namazExcusedDays(enrollment.id, dates);
+    return nextWindowAfter(enabled, at, participant.tz, lookup, (w) => w.topicKind === 'namaz' && uzur.has(w.dayKey));
   }
 
-  /** Окна сегодняшнего дня со статусом — для /ball. */
-  async todayStatus(ctx: ActiveContext, at: Date): Promise<{ window: WindowInstance; done: boolean }[]> {
+  /** Окна сегодняшнего дня со статусом — для «Отчётторум» и вечерней сводки. */
+  async todayStatus(ctx: ActiveContext, at: Date): Promise<{ window: WindowInstance; done: boolean; uzur: boolean }[]> {
     const { participant, enrollment, marathon } = ctx;
     if (!participant.lat || !participant.lng || !participant.tz) return [];
 
@@ -123,10 +129,12 @@ export class ReportsService {
       localDateShift(today, -1), today, localDateShift(today, 1),
     ]);
     const reported = await this.reportedKeys(enrollment.id, [today]);
+    const uzur = (await this.participants.namazExcusedDays(enrollment.id, [today])).has(today);
 
     return windowsForDay(enabled, today, tz, lookup).map((w) => ({
       window: w,
       done: reported.has(`${w.topicId}|${w.dayKey}`),
+      uzur: uzur && w.topicKind === 'namaz',
     }));
   }
 

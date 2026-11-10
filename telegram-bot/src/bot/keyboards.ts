@@ -18,12 +18,12 @@ function trim(kb: InlineKeyboard): InlineKeyboard {
   return kb;
 }
 
-/** Главная клавиатура: четыре кнопки, больше ничего. */
+/** Главная клавиатура: кнопки из `bot_texts`, по две в ряд. */
 export function mainKeyboard(labels: string[]): Keyboard {
   const kb = new Keyboard();
   labels.forEach((label, i) => {
     kb.text(label);
-    // Две кнопки в ряд читаются на телефоне лучше, чем четыре.
+    // Две кнопки в ряд читаются на телефоне лучше, чем шесть подряд.
     if (i % 2 === 1) kb.row();
   });
   return kb.resized().persistent();
@@ -135,6 +135,18 @@ export function notifyNextKeyboard(label: string): InlineKeyboard {
 }
 
 /** Кнопка «Сдать для «марафон»» в напоминаниях, когда марафонов несколько. */
+/** Под вопросом о цели: записать сейчас или вернуться позже. */
+export function goalKeyboard(writeLabel: string, laterLabel?: string): InlineKeyboard {
+  const kb = new InlineKeyboard().text(writeLabel, 'goal:write');
+  if (laterLabel) kb.text(laterLabel, 'goal:later');
+  return kb;
+}
+
+/** «Өзүм жөнүндө»: узур на сегодня и правка цели. */
+export function aboutKeyboard(uzurLabel: string, uzurOn: boolean, goalLabel: string): InlineKeyboard {
+  return new InlineKeyboard().text(uzurLabel, uzurOn ? 'uzur:off' : 'uzur:on').row().text(goalLabel, 'goal:write');
+}
+
 export function submitForKeyboard(enrollmentId: string, label: string): InlineKeyboard {
   return new InlineKeyboard().text(label, cbData('sub', packId(enrollmentId)));
 }

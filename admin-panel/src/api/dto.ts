@@ -118,6 +118,7 @@ export interface NamazDto {
 export interface ParticipantRowDto {
   participantId: string;
   firstName: string;
+  lastName: string;
   username: string | null;
   tz: string | null;
   /** Как называется её место: Бишкек и Ош в одной зоне, но времена разные. */
@@ -136,6 +137,8 @@ export interface ParticipantRowDto {
   /** 0 — сдала сегодня, null — не сдавала ни разу. */
   daysSinceReport: number | null;
   reachedDay7: boolean;
+  /** Зачем пришла в марафон — её слова, спрошенные при записи. */
+  goal: string | null;
 }
 
 export interface LedgerEntryDto {
@@ -162,7 +165,7 @@ export interface ParticipantDetailDto {
   };
   localNow: string;
   enrollments: { enrollment: { id: string; status: EnrollmentStatusDto; points: number; streak: number; bestStreak: number; latePassesUsed: number; joinedAt: string }; marathon: MarathonDto }[];
-  todayWindows: { topicId: string; name: string; opensAt: string; closesAt: string; done: boolean }[];
+  todayWindows: { topicId: string; name: string; opensAt: string; closesAt: string; done: boolean; uzur: boolean }[];
   last7: { dayKey: string; topicId: string; points: number }[];
   ledger: LedgerEntryDto[];
 }

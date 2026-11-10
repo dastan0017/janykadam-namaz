@@ -105,6 +105,8 @@ export class WorkersService implements OnModuleInit {
 
     const namaz = enabled.namaz.includes(data.topicId as never);
     const optIn = data.topicId === 't1';
+    // Узур: о намазах сегодня не напоминаем — свои темы марафона остаются.
+    const uzurNamaz = namaz && (await this.participants.namazExcusedDays(data.enrollmentId, [data.dayKey])).has(data.dayKey);
 
     // Всё перепроверяем сейчас, а не на этапе планирования.
     const decision = decideReminder({
@@ -119,6 +121,7 @@ export class WorkersService implements OnModuleInit {
       capPerDay: settings.capPerDay,
       optIn,
       optedIn: row.participant.tahajjudReminders,
+      uzurNamaz,
     });
 
     if (!decision.send) {
@@ -193,7 +196,7 @@ export class WorkersService implements OnModuleInit {
 
       // Перечисляем то, что ещё можно сдать или вот-вот откроется сегодня.
       const status = await this.reports.todayStatus(ctx, now);
-      const pending = status.filter((s) => !s.done && s.window.closesAt.getTime() > now.getTime());
+      const pending = status.filter((s) => !s.done && !s.uzur && s.window.closesAt.getTime() > now.getTime());
       if (pending.length === 0) continue;
 
       if (!(await this.notify.markSent(data.enrollmentId, 'evening', null, data.dayKey))) continue;
@@ -270,7 +273,7 @@ export class WorkersService implements OnModuleInit {
       .where(and(eq(reports.enrollmentId, enrollmentId), eq(reports.dayKey, dayKey)));
 
     const [excused] = await this.db
-      .select({ dayKey: excusedDays.dayKey })
+      .select({ dayKey: excusedDays.dayKey, scope: excusedDays.scope })
       .from(excusedDays)
       .where(and(eq(excusedDays.enrollmentId, enrollmentId), eq(excusedDays.dayKey, dayKey)))
       .limit(1);
@@ -278,7 +281,8 @@ export class WorkersService implements OnModuleInit {
     const complete = isDayComplete({
       mandatory,
       reportedTopicIds: new Set(rows.map((r) => r.topicId)),
-      excused: !!excused,
+      excused: excused?.scope === 'day',
+      namazExcused: excused?.scope === 'namaz',
       paused: ctx.enrollment.status === 'paused',
       joinedAt: ctx.enrollment.joinedAt,
     });

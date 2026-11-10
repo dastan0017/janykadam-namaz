@@ -209,7 +209,8 @@ export function toParticipant(dto: ParticipantRowDto): Participant {
   const tz = dto.tz ?? '';
   return {
     id: dto.participantId,
-    name: dto.firstName,
+    // Имён вроде «Нургүл» в марафоне десяток — фамилия нужна, чтобы различать.
+    name: [dto.firstName, dto.lastName].filter(Boolean).join(' ').trim() || dto.firstName,
     user: dto.username ? `@${dto.username}` : '',
     tz,
     place: dto.placeLabel ?? '',
@@ -222,6 +223,7 @@ export function toParticipant(dto: ParticipantRowDto): Participant {
     blocked: dto.blocked,
     joined: localDate(tz || 'Asia/Bishkek', new Date(dto.joinedAt)),
     d7: dto.reachedDay7,
+    goal: dto.goal ?? '',
   };
 }
 

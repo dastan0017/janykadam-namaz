@@ -121,6 +121,8 @@ export interface Participant {
   joined: string;
   /** Дошла до седьмого дня — для воронки. */
   d7: boolean;
+  /** Зачем пришла в марафон — её слова из бота. Пусто, если не ответила. */
+  goal: string;
 }
 
 export interface LedgerEntry {
