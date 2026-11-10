@@ -26,43 +26,30 @@ Suffix List — для браузера `panel.duckdns.org` и `api.duckdns.org`
 
 ## Сервер
 
-Всё дальше — по SSH, от root.
+Всё дальше — по SSH, от root. Забрать код:
 
 ```bash
-apt update && apt install -y docker.io docker-compose-v2 git ufw
+apt-get update -qq && apt-get install -y -qq git && git clone <адрес репозитория> /opt/janykadam
 ```
 
-Открыть только нужное:
+Дальше всё делает [`bootstrap.sh`](bootstrap.sh) — он ставит пакеты, закрывает
+фаервол, генерирует секреты, поднимает стенд, применяет миграции, импортирует
+города и выполняет сид. Скрипт идемпотентный: повторный запуск ничего не ломает.
 
 ```bash
-ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
+bash /opt/janykadam/deploy/bootstrap.sh
 ```
 
-Забрать код:
+Первый запуск создаст `deploy/.env` с новыми секретами и остановится: впишите
+`BOT_TOKEN`, `BOT_USERNAME` и `INITIAL_ADMIN_TG_USERNAME`, затем запустите
+скрипт снова. Импорт городов скачивает около 30 МБ и занимает пару минут:
+171 тысяча строк.
 
-```bash
-git clone <адрес репозитория> /opt/janykadam && cd /opt/janykadam
-```
-
-Настройки:
-
-```bash
-cp deploy/.env.example deploy/.env
-```
-
-Заполнить `deploy/.env`. Три секрета генерируются так, каждый своей командой:
-
-```bash
-openssl rand -hex 32
-```
-
-Поднять:
+Если хочется по шагам, руками:
 
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
-
-Первый раз — миграции, справочник городов и базовые данные:
 
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app node dist/db/migrate.js
@@ -75,8 +62,6 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app node
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app node dist/db/seed.js
 ```
-
-Импорт городов скачивает около 30 МБ и занимает пару минут: 171 тысяча строк.
 
 ## Проверить
 
