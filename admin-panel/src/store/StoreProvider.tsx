@@ -10,6 +10,7 @@ import { initialState } from '../data/initial';
 import { seed } from '../data/seed';
 import { currentData, currentMarathon, filteredParts, segments } from '../lib/derive';
 import { plural, slugify } from '../lib/format';
+import { buildPath, currentPath, parseRoute, type Route } from '../lib/route';
 import { localDate, tzLabel } from '../lib/time';
 import type { AppState, Marathon, MarathonData, QuestionType, Screen } from '../types';
 import { ActionsCtx, StateCtx, type Actions, type Patch, type Updater } from './context';
@@ -41,6 +42,37 @@ const REFRESH: Record<Screen, (GlobalPart | 'data')[]> = {
   users: ['users'],
   journal: ['audit'],
 };
+
+/** Состояние навигации по текущему адресу. */
+type NavPatch = Pick<AppState, 'screen' | 'mid' | 'topicId' | 'qId' | 'topicTab'>;
+
+function navOf(route: Route, marathons: Marathon[], fallbackMid: string | null): NavPatch {
+  const m = route.code ? marathons.find((x) => x.code === route.code) : undefined;
+
+  // Ссылка на марафон, которого нет: показываем список, а не пустой экран.
+  if (!GLOBAL.includes(route.screen) && !m) {
+    return { screen: 'marathons', mid: fallbackMid, topicId: null, qId: null, topicTab: 'settings' };
+  }
+
+  return {
+    screen: route.screen,
+    mid: m?.id ?? fallbackMid,
+    topicId: route.topicId ?? null,
+    qId: route.qId ?? null,
+    topicTab: route.topicTab ?? 'settings',
+  };
+}
+
+/** Адрес, отвечающий состоянию навигации. */
+function pathOf(s: Pick<AppState, 'screen' | 'mid' | 'topicId' | 'qId' | 'topicTab' | 'marathons'>): string {
+  return buildPath({
+    screen: s.screen,
+    code: s.marathons.find((m) => m.id === s.mid)?.code,
+    topicId: s.topicId ?? undefined,
+    qId: s.qId ?? undefined,
+    topicTab: s.topicTab,
+  });
+}
 
 /**
  * Состояние панели.
@@ -108,23 +140,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const me = await api.me();
       const patch = await loadGlobal();
       const first = patch.marathons.find((m) => m.status === 'running') ?? patch.marathons[0];
+      // Открываем то, что в адресе: перезагрузка должна оставить на месте.
+      const nav = navOf(parseRoute(window.location.pathname, window.location.search), patch.marathons, first?.id ?? null);
 
       // Отмечаем до того, как панель станет видимой: иначе эффект обновления
       // успеет сработать на первом же кадре и сходит за тем же самым второй раз.
-      refreshedKey.current = `${stateRef.current.screen}|${first?.id ?? ''}`;
+      refreshedKey.current = `${nav.screen}|${nav.mid ?? ''}`;
+
+      // Приводим адрес к каноническому виду: «/» и непонятный путь не должны
+      // остаться в истории — иначе «назад» вернёт туда же.
+      window.history.replaceState(null, '', pathOf({ ...nav, marathons: patch.marathons }));
 
       setState((s) => ({
         ...s,
         ...patch,
+        ...nav,
         auth: 'ready',
         authError: null,
         me: toMe(me),
         role: me.role,
-        mid: first?.id ?? null,
-        loading: !!first,
+        loading: !!nav.mid,
       }));
 
-      if (first) await reloadMarathon(first.id);
+      if (nav.mid) await reloadMarathon(nav.mid);
     } catch (err) {
       const anonymous = err instanceof ApiError && err.unauthorized;
       setState((s) => ({
@@ -190,6 +228,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       for (const t of timers.values()) window.clearTimeout(t.id);
     };
   }, [bootstrap]);
+
+  /** Адрес следует за состоянием: каждый раздел виден в строке браузера. */
+  const path = pathOf(state);
+  useEffect(() => {
+    if (state.auth !== 'ready') return;
+    if (currentPath() === path) return;
+    window.history.pushState(null, '', path);
+  }, [path, state.auth]);
+
+  /** «Назад» и «вперёд» в браузере: адрес ведёт состояние. */
+  useEffect(() => {
+    const onPop = () => {
+      const s = stateRef.current;
+      if (s.auth !== 'ready') return;
+
+      const nav = navOf(parseRoute(window.location.pathname, window.location.search), s.marathons, s.mid);
+      // Непонятный путь не должен остаться в строке браузера: показываем список
+      // марафонов — пусть и адрес будет его.
+      const canonical = pathOf({ ...nav, marathons: s.marathons });
+      if (canonical !== currentPath()) window.history.replaceState(null, '', canonical);
+
+      setState((prev) => ({ ...prev, ...nav, drawerId: null, navOpen: false }));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   /**
    * Обновление при открытии экрана. Срабатывает на смену экрана или марафона
