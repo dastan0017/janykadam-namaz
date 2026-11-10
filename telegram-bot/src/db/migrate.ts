@@ -2,12 +2,15 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
+import { assertProjectDatabase, loadDotenv } from '../config/dotenv';
 
 /**
  * Накатывает миграции drizzle-kit, а потом доустраивает то, что генератор не умеет:
  * расширение pg_trgm и триграммный индекс для поиска городов.
  */
 async function main(): Promise<void> {
+  loadDotenv();
+  assertProjectDatabase();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('Нужен DATABASE_URL');
 

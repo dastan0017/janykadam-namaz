@@ -5,6 +5,7 @@ import { NAMAZ_TOPICS, KAZA_QUESTION } from '../domain/namaz';
 import { ZERO_TUNE, methodVersion } from '../domain/prayer';
 import * as s from './schema';
 import { BOT_TEXTS } from './seed-texts';
+import { assertProjectDatabase, loadDotenv } from '../config/dotenv';
 
 /**
  * Сид. Базовая часть нужна всегда, демо-данные — только при SEED_DEMO=true.
@@ -34,6 +35,8 @@ const COMMANDS = [
 ];
 
 async function main(): Promise<void> {
+  loadDotenv();
+  assertProjectDatabase();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('Нужен DATABASE_URL');
 

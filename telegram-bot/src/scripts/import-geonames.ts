@@ -4,6 +4,7 @@ import { mkdir, rm, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { Pool } from 'pg';
 import { buildNameNorm, buildSearchText } from '../domain/normalize';
+import { assertProjectDatabase, loadDotenv } from '../config/dotenv';
 
 /**
  * Импорт GeoNames cities1000 (CC BY 4.0, https://www.geonames.org/).
@@ -141,6 +142,8 @@ async function flush(pool: Pool, rows: Row[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  loadDotenv();
+  assertProjectDatabase();
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('Нужен DATABASE_URL');
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { loadDotenv } from './dotenv';
 
 /**
  * Разбор окружения. Падаем на старте, а не в середине работы.
@@ -26,6 +27,13 @@ const schema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
 
+  /**
+   * Общий предел отправки, сообщений в секунду. У Telegram он около 30 на все
+   * чаты, поэтому по умолчанию держим 25 с запасом. Ниже — если Telegram начнёт
+   * возвращать 429; выше имеет смысл только в тестах, где Telegram поддельный.
+   */
+  MAX_MSG_PER_SECOND: z.coerce.number().int().positive().default(25),
+
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -38,6 +46,9 @@ export type Env = z.infer<typeof schema>;
 let cached: Env | null = null;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
+  // `.env` имеет приоритет над окружением оболочки — см. loadDotenv.
+  if (source === process.env) loadDotenv();
+
   const parsed = schema.safeParse(source);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join('.') || '(корень)'}: ${i.message}`).join('\n');

@@ -56,9 +56,21 @@ export function localDateShift(dayKey: DayKey, days: number): DayKey {
   return DateTime.fromISO(dayKey, { zone: 'utc' }).plus({ days }).toFormat('yyyy-MM-dd');
 }
 
-/** HH:MM локальной даты в момент UTC. */
+/**
+ * HH:MM локальной даты в момент UTC.
+ *
+ * Минуты выставляются как время на часах, а не прибавляются как длительность:
+ * в день перехода на зимнее время местные сутки длиннее на час, и «05:00»
+ * иначе оказывалось бы в 04:00 по местным часам.
+ */
 export function localTimeToInstant(dayKey: DayKey, minutes: number, tz: string): Date {
-  return DateTime.fromISO(dayKey, { zone: tz }).startOf('day').plus({ minutes }).toUTC().toJSDate();
+  const days = Math.floor(minutes / 1440);
+  const rest = ((minutes % 1440) + 1440) % 1440;
+  return DateTime.fromISO(dayKey, { zone: tz })
+    .plus({ days })
+    .set({ hour: Math.floor(rest / 60), minute: rest % 60, second: 0, millisecond: 0 })
+    .toUTC()
+    .toJSDate();
 }
 
 export function parseHHMM(hhmm: string): number {

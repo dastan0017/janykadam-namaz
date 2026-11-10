@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { parseHHMM } from './windows';
+import { localDateShift, localTimeToInstant, parseHHMM } from './windows';
 
 /**
  * Тихие часы и дневной лимит напоминаний.
@@ -31,11 +31,12 @@ export function shiftOutOfQuiet(instant: Date, tz: string, quietFrom: string, qu
   const local = DateTime.fromJSDate(instant, { zone: tz });
   const to = parseHHMM(quietTo.slice(0, 5));
   const minutes = local.hour * 60 + local.minute;
+  const dayKey = local.toFormat('yyyy-MM-dd');
 
   // Если мы после полуночи и до конца тихих часов — конец сегодня, иначе завтра.
-  const endToday = local.startOf('day').plus({ minutes: to });
-  const target = minutes < to ? endToday : endToday.plus({ days: 1 });
-  return target.toUTC().toJSDate();
+  return minutes < to
+    ? localTimeToInstant(dayKey, to, tz)
+    : localTimeToInstant(localDateShift(dayKey, 1), to, tz);
 }
 
 /** Момент отправки напоминания по теме: открытие окна плюс смещение. */

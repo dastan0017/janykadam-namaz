@@ -103,7 +103,7 @@ export class BroadcastWorker implements OnModuleInit {
 
       const text = this.broadcastSvc.fill(b.text, row, marathonName);
 
-      const ok = await this.notify.send(
+      const outcome = await this.notify.send(
         {
           participantId: row.participantId,
           chatId: row.chatId,
@@ -115,7 +115,9 @@ export class BroadcastWorker implements OnModuleInit {
         { withSwitchButton: true },
       );
 
-      await this.markDelivery(broadcastId, participantId, ok ? 'sent' : 'blocked', null);
+      // «Заблокировала бота» и «не удалось отправить» — разные вещи, и в
+      // панели их нельзя путать: первое решение участницы, второе наша беда.
+      await this.markDelivery(broadcastId, participantId, outcome.status, outcome.error ?? null);
     }
 
     await this.finishIfDone(broadcastId);

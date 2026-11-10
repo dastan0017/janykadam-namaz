@@ -3,14 +3,26 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { GrammyError } from 'grammy';
 import { BotService } from '../bot/bot.service';
 import { submitForKeyboard } from '../bot/keyboards';
+import { env } from '../config/env';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { enrollments, participants, remindersLog } from '../db/schema';
 import type { Lang } from '../domain/text';
 import { ParticipantsService } from './participants.service';
 import { SettingsService } from './settings.service';
 
-/** Глобальный предел отправки: ~25 сообщений в секунду на всё — напоминания и рассылки. */
-const MAX_PER_SECOND = 25;
+/**
+ * Глобальный предел отправки на всё — и напоминания, и рассылки: у Telegram он
+ * общий на бота, а не на чат. Значение берётся из `MAX_MSG_PER_SECOND` (25).
+ */
+function maxPerSecond(): number {
+  return env().MAX_MSG_PER_SECOND;
+}
+
+/** Исход одной отправки. `error` заполняется только у `failed`. */
+export interface SendOutcome {
+  status: 'sent' | 'blocked' | 'failed';
+  error?: string;
+}
 
 interface Recipient {
   participantId: string;
@@ -40,14 +52,14 @@ export class NotifyService {
     private readonly settings: SettingsService,
   ) {}
 
-  /** Пропускает не больше MAX_PER_SECOND вызовов в секунду. */
+  /** Пропускает не больше `MAX_MSG_PER_SECOND` вызовов в секунду. */
   private async throttle(): Promise<void> {
     const now = Date.now();
     if (now - this.windowStart >= 1000) {
       this.windowStart = now;
       this.sentInWindow = 0;
     }
-    if (this.sentInWindow >= MAX_PER_SECOND) {
+    if (this.sentInWindow >= maxPerSecond()) {
       const wait = 1000 - (now - this.windowStart);
       await new Promise((r) => setTimeout(r, Math.max(1, wait)));
       this.windowStart = Date.now();
@@ -57,11 +69,16 @@ export class NotifyService {
   }
 
   /**
-   * Отправляет текст участнице. Возвращает false, если бот заблокирован.
-   * Все вызовы выстраиваются в одну очередь, чтобы ограничитель был общим.
+   * Отправляет текст участнице. Все вызовы выстраиваются в одну очередь, чтобы
+   * ограничитель был общим.
+   *
+   * Исход различается: `blocked` — участница заблокировала бота (403), и писать
+   * ей больше не нужно; `failed` — отправка не удалась по другой причине, и это
+   * не её решение. Для рассылки разница видна в панели, поэтому возвращаем не
+   * «да/нет», а три состояния.
    */
-  async send(r: Recipient, text: string, opts: { withSwitchButton?: boolean } = {}): Promise<boolean> {
-    const run = async (): Promise<boolean> => {
+  async send(r: Recipient, text: string, opts: { withSwitchButton?: boolean } = {}): Promise<SendOutcome> {
+    const run = async (): Promise<SendOutcome> => {
       await this.throttle();
 
       const several = (await this.participants.countActiveEnrollments(r.participantId)) > 1;
@@ -81,15 +98,16 @@ export class NotifyService {
 
       try {
         await this.bot.send(r.chatId, body, extra);
-        return true;
+        return { status: 'sent' };
       } catch (err) {
         // 403 — бот заблокирован; помечаем и больше не пытаемся.
         if (err instanceof GrammyError && err.error_code === 403) {
           await this.participants.setBlocked(r.participantId, true);
-          return false;
+          return { status: 'blocked' };
         }
-        this.log.warn(`Не удалось отправить ${r.participantId}: ${String(err)}`);
-        return false;
+        const error = err instanceof GrammyError ? `${err.error_code}: ${err.description}` : String(err);
+        this.log.warn(`Не удалось отправить ${r.participantId}: ${error}`);
+        return { status: 'failed', error };
       }
     };
 

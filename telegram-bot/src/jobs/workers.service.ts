@@ -77,7 +77,11 @@ export class WorkersService implements OnModuleInit {
     }
   }
 
-  private async sendTopicReminder(data: TopicReminderJob): Promise<void> {
+  /**
+   * Одно напоминание по теме. Публичный метод: все проверки делаются здесь, в
+   * момент срабатывания, поэтому он же — точка входа для тестов.
+   */
+  async sendTopicReminder(data: TopicReminderJob): Promise<void> {
     const r = await this.notify.recipientOf(data.enrollmentId);
     if (!r) return;
 

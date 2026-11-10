@@ -1,7 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   boolean, date, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, smallint,
-  text, time, timestamp, uniqueIndex, uuid,
+  text, time, timestamp, unique, uniqueIndex, uuid,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -276,7 +276,10 @@ export const remindersLog = pgTable(
     status: text('status').notNull().default('sent'),
   },
   (t) => [
-    uniqueIndex('reminders_log_key').on(t.kind, t.enrollmentId, t.topicId, t.dayKey),
+    // У утренних, вечерних, недельных записей и у оценки дня topic_id равен
+    // NULL, а NULL в обычном уникальном индексе не конфликтует сам с собой:
+    // после перезапуска сводка ушла бы второй раз. Отсюда NULLS NOT DISTINCT.
+    unique('reminders_log_key').on(t.kind, t.enrollmentId, t.topicId, t.dayKey).nullsNotDistinct(),
     index('reminders_log_day_idx').on(t.enrollmentId, t.dayKey),
   ],
 );
