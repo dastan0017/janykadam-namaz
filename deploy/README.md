@@ -81,11 +81,41 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs app | gr
 
 ## Обновление
 
+Если код пришёл из git:
+
 ```bash
-cd /opt/janykadam && git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+cd /opt/janykadam && git pull
 ```
 
-Если в обновлении были миграции — применить их тем же `node dist/db/migrate.js`.
+Если ветка на сервер не заведена, исходники приезжают архивом с машины
+разработчика — на ней:
+
+```bash
+git archive --format=tar HEAD | gzip -9 > /tmp/src.tgz && scp /tmp/src.tgz root@СЕРВЕР:/tmp/src.tgz
+```
+
+и на сервере:
+
+```bash
+cd /opt/janykadam && tar xzf /tmp/src.tgz
+```
+
+Архив собирается из коммита, поэтому незакоммиченное на сервер не попадает, а
+`deploy/.env` с секретами остаётся нетронутым: он не в репозитории.
+
+Дальше одинаково — пересборка и миграции:
+
+```bash
+cd /opt/janykadam && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+```
+
+```bash
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec app node dist/db/migrate.js
+```
+
+Миграции безопасно запускать всегда: применённые пропускаются. Сид на
+обновлении не нужен — новые тексты бота дописываются в базу при старте, а
+правленые из панели не трогаются.
 
 ## Резервные копии
 
