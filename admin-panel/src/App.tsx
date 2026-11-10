@@ -14,6 +14,7 @@ import { BotSettings } from './screens/BotSettings';
 import { BotTexts } from './screens/BotTexts';
 import { Broadcasts } from './screens/Broadcasts';
 import { Journal } from './screens/Journal';
+import Login from './screens/Login';
 import { MarathonSettings } from './screens/MarathonSettings';
 import { Marathons } from './screens/Marathons';
 import { Namaz } from './screens/Namaz';
@@ -144,10 +145,25 @@ function Panel() {
   );
 }
 
+/** Пока проверяется сессия, рисовать панель не на чем — данных ещё нет. */
+function Gate() {
+  const s = useAppState();
+
+  if (s.auth === 'checking') {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: 'var(--bg)' }}>
+        <span className="sub">Загрузка…</span>
+      </div>
+    );
+  }
+  if (s.auth === 'anonymous') return <Login />;
+  return <Panel />;
+}
+
 export default function App() {
   return (
     <StoreProvider>
-      <Panel />
+      <Gate />
     </StoreProvider>
   );
 }

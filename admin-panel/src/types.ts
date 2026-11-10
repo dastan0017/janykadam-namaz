@@ -23,12 +23,13 @@ export type Screen =
 export type MarathonStatus = 'draft' | 'recruiting' | 'running' | 'finished' | 'archive';
 export type ParticipantStatus = 'active' | 'paused' | 'left' | 'finished';
 export type Lang = 'kg' | 'ru';
-export type TzKey = 'bishkek' | 'osh' | 'almaty' | 'moscow' | 'istanbul' | 'seoul' | 'newyork';
+/** Пояс — зона IANA, как её хранит бот: `Asia/Bishkek`. Любая, не только пресет. */
+export type TzKey = string;
 export type QuestionType = 'single' | 'multi' | 'text' | 'number' | 'scale' | 'yesno';
 export type Frequency = 'daily' | 'weekly';
 
 /** Якорь окна намаза: имя времени намаза + смещение в минутах. */
-export type PrayerAnchor = 'fajr' | 'sunrise' | 'dhuhr' | 'asr' | 'maghrib' | 'isha' | 'midnight' | 'fixed';
+export type PrayerAnchor = 'fajr' | 'sunrise' | 'dhuhr' | 'asr' | 'maghrib' | 'isha' | 'nextFajr' | 'midnight' | 'fixed';
 export type AnchorSpec = readonly [PrayerAnchor, number];
 
 export interface AnswerOption {
@@ -105,21 +106,25 @@ export interface Participant {
   name: string;
   user: string;
   tz: TzKey;
+  /** Название места из бота: зоны мало, Бишкек и Ош расходятся на 5–15 минут. */
+  place: string;
   status: ParticipantStatus;
   points: number;
   streak: number;
-  /** Дней без отчёта: 0 — сдала сегодня. */
+  /** Дней без отчёта: 0 — сдала сегодня, 99 — не сдавала ни разу. */
   last: number;
-  /** Id тем, сданных сегодня. */
+  /** Id тем, сданных сегодня по её местной дате. */
   today: string[];
   lang: Lang;
   blocked: boolean;
+  /** Местная дата входа в марафон, `YYYY-MM-DD`. */
   joined: string;
   /** Дошла до седьмого дня — для воронки. */
   d7: boolean;
 }
 
 export interface LedgerEntry {
+  /** Дата начисления, `YYYY-MM-DD`. */
   d: string;
   delta: number;
   reason: string;
@@ -155,6 +160,13 @@ export interface Marathon {
   skipSubmitted: boolean;
   /** Итоговое число участниц завершённого марафона. */
   reported?: number;
+  /**
+   * Сводка из списка марафонов. Нужна экрану «Все марафоны»: данные загружаются
+   * по одному марафону, а карточки показывают все сразу.
+   */
+  stats?: { total: number; active: number; submittedToday: number; pct: number };
+  namazCount?: number;
+  topicsCount?: number;
 }
 
 export interface MarathonData {
@@ -165,6 +177,8 @@ export interface MarathonData {
   /** Доля сдавших по дням, в процентах. */
   trend: number[];
   ledger: Record<string, LedgerEntry[]>;
+  /** Отчёты участницы за последнюю неделю: ключ дня → сколько сдано. */
+  recent: Record<string, Record<string, number>>;
   broadcasts: Broadcast[];
 }
 
@@ -181,6 +195,16 @@ export interface AuditEntry {
   at: string;
   who: string;
   what: string;
+}
+
+/** Состояние входа: пока идёт проверка сессии, панель не рендерится. */
+export type AuthState = 'checking' | 'anonymous' | 'ready';
+
+export interface Me {
+  id: string;
+  name: string;
+  tg: string;
+  role: Role;
 }
 
 export interface BotText {
@@ -261,6 +285,14 @@ export interface BroadcastState {
 }
 
 export interface AppState {
+  auth: AuthState;
+  me: Me | null;
+  /** Ошибка входа или загрузки — показывается на экране входа. */
+  authError: string | null;
+  /** Идёт загрузка данных марафона: таблицы показывают заглушку. */
+  loading: boolean;
+  /** Марафоны, данные которых уже загружены. */
+  loaded: string[];
   role: Role;
   screen: Screen;
   mid: string | null;

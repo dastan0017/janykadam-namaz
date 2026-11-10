@@ -49,7 +49,16 @@ export class MarathonsController {
   @Get('marathons')
   async list() {
     const rows = await this.db.select().from(marathons).orderBy(asc(marathons.startDate));
-    return Promise.all(rows.map(async (m) => ({ ...m, stats: await this.stats(m.id) })));
+    // Экран «Все марафоны» — сводка по всем сразу, поэтому счётчики идут вместе
+    // со списком: иначе панели пришлось бы грузить данные каждого марафона.
+    return Promise.all(
+      rows.map(async (m) => ({
+        ...m,
+        namazIds: await this.namazIds(m.id),
+        topicsCount: await this.topicsCount(m.id),
+        stats: await this.stats(m.id),
+      })),
+    );
   }
 
   @Post('marathons')
@@ -63,7 +72,7 @@ export class MarathonsController {
   @Get('marathons/:id')
   async get(@Param('id') id: string) {
     const m = await this.find(id);
-    return { ...m, stats: await this.stats(id) };
+    return { ...m, namazIds: await this.namazIds(id), stats: await this.stats(id) };
   }
 
   @Patch('marathons/:id')
@@ -224,6 +233,21 @@ export class MarathonsController {
     const [row] = await this.db.select().from(marathons).where(eq(marathons.id, id)).limit(1);
     if (!row) throw new NotFoundException('Марафон не найден');
     return row;
+  }
+
+  /** Сколько своих тем в марафоне — для карточки в списке. */
+  private async topicsCount(marathonId: string): Promise<number> {
+    const rows = await this.db.select({ id: topics.id }).from(topics).where(eq(topics.marathonId, marathonId));
+    return rows.length;
+  }
+
+  /** Включённые намазы, в каноническом порядке библиотеки. */
+  private async namazIds(marathonId: string): Promise<string[]> {
+    const rows = await this.db.select().from(marathonNamaz).where(eq(marathonNamaz.marathonId, marathonId));
+    const order = new Map(NAMAZ_IDS.map((id, i) => [id as string, i]));
+    return rows
+      .map((r) => r.namazId as string)
+      .sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99));
   }
 
   private async stats(marathonId: string) {

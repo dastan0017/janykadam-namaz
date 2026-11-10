@@ -219,6 +219,14 @@ docker compose exec app node -e "require('./dist/db/migrate.js')"
 В проде поставьте `BOT_MODE=webhook`, `PUBLIC_URL` и `WEBHOOK_SECRET` — бот сам
 зарегистрирует вебхук на старте.
 
+## Панель
+
+[admin-panel](../admin-panel) — отдельное приложение на React, собирается в
+статику. Вход через Telegram Login Widget, сессия в httpOnly-куке `jk_admin`
+с `SameSite=Lax`: панель и API должны быть на одном сайте (поддомены одного
+домена или localhost с разными портами). Для разработки в `.env` нужен
+`ADMIN_ORIGIN=http://localhost:5173`.
+
 ## Открытые вопросы
 
 Решения, оставшиеся за заказчиком, и найденные в спецификации расхождения

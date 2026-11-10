@@ -4,10 +4,10 @@ import { useActions, useAppState } from '../store/context';
 /** Глобальные настройки бота: он один на все марафоны, поэтому их нельзя развести по марафонам. */
 export function BotSettings() {
   const s = useAppState();
-  const { set, saveBotName } = useActions();
+  const { set, setBot, saveBotName } = useActions();
   const bot = s.bot;
   const editing = s.botDraft !== null;
-  const setBot = (patch: Partial<typeof bot>) => set({ bot: { ...bot, ...patch } });
+
 
   return (
     <div style={{ maxWidth: 800, display: 'flex', flexDirection: 'column', gap: 14 }}>

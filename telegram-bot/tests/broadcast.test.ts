@@ -32,6 +32,7 @@ const ALWAYS_LIMITED = 3;
 let h: Harness;
 let marathonId: string;
 let chatIds: string[] = [];
+let ourIds: string[] = [];
 
 const chatOf = (i: number) => `${TG_PREFIX}${String(i).padStart(5, '0')}`;
 
@@ -59,6 +60,7 @@ beforeAll(async () => {
     inserted.map((p) => ({ participantId: p.id, marathonId, status: 'active' as const })),
   );
   chatIds = rows.map((r) => r.chatId);
+  ourIds = inserted.map((p) => p.id);
 }, 120_000);
 
 afterAll(async () => {
@@ -100,15 +102,21 @@ describe('рассылка на тысячу', () => {
         return undefined;
       });
 
+      // Сегмент «все активные» резолвится по всей базе, поэтому счётчики
+      // рассылки зависели бы от чужих строк. Проверяем его отдельно, а саму
+      // отправку гоняем по явному списку — тогда итоги принадлежат только нам.
+      const preview = await h.broadcastSvc.resolveSegment(marathonId, { kind: 'all_active' });
+      expect(preview.length).toBeGreaterThanOrEqual(RECIPIENTS - 1);
+
       const { id, count } = await h.broadcastSvc.create({
         marathonId,
         text: 'Салам, {имя}! Баллдарыңыз: {баллы}.',
-        segment: { kind: 'all_active' },
+        segment: { kind: 'selected', participantIds: ourIds },
         schedule: { kind: 'now' },
       });
 
       // Заблокировавшая бота в снимок не попадает вовсе.
-      expect(count).toBeGreaterThanOrEqual(RECIPIENTS - 1);
+      expect(count).toBe(RECIPIENTS - 1);
 
       const ours = await h.db
         .select({ participantId: broadcastDeliveries.participantId })
@@ -119,7 +127,7 @@ describe('рассылка на тысячу', () => {
 
       // Разбор идёт порциями по сто, поэтому прогресс виден между заходами.
       const seen: number[] = [];
-      for (let tick = 0; tick < 60; tick++) {
+      for (let tick = 0; tick < 80; tick++) {
         await h.broadcasts.tick();
         const p = await h.broadcastSvc.progress(id);
         expect(p).toBeTruthy();
@@ -140,6 +148,7 @@ describe('рассылка на тысячу', () => {
       expect(done!.totals.blocked).toBe(1);
       expect(done!.totals.failed).toBe(1);
       expect(done!.totals.sent).toBe(RECIPIENTS - 3);
+      expect(done!.totals.count).toBe(RECIPIENTS - 1);
 
       // 403 помечает участницу заблокировавшей — больше ей не пишем.
       const [forbidden] = await h.db

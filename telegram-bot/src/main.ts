@@ -21,7 +21,15 @@ async function bootstrap(): Promise<void> {
   await app.register(fastifyCookie, { secret: cfg.SESSION_SECRET });
 
   if (cfg.ADMIN_ORIGIN) {
-    app.enableCors({ origin: cfg.ADMIN_ORIGIN, credentials: true });
+    // Методы перечислены явно: по умолчанию в ответ на preflight уходит
+    // `GET,HEAD,POST`, и браузер режет все правки из панели — PATCH, PUT и
+    // DELETE. Снаружи это выглядит как «запрос не прошёл» без объяснений.
+    app.enableCors({
+      origin: cfg.ADMIN_ORIGIN,
+      credentials: true,
+      methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['content-type'],
+    });
   }
 
   const doc = SwaggerModule.createDocument(

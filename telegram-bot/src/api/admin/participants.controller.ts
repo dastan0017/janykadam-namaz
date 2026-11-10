@@ -4,7 +4,7 @@ import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { DRIZZLE, type Db } from '../../db/drizzle.module';
 import { enrollments, excusedDays, marathons, participants, pointsLedger, reports } from '../../db/schema';
-import { localDateShift, toLocalDate } from '../../domain/windows';
+import { daysBetween, localDateShift, marathonDayNumber, toLocalDate } from '../../domain/windows';
 import { NotifyService } from '../../services/notify.service';
 import { ReportsService } from '../../services/reports.service';
 import { SettingsService } from '../../services/settings.service';
@@ -33,7 +33,8 @@ export class ParticipantsController {
     const rows = await this.rowsFor(marathonId);
     const today = (r: (typeof rows)[number]) => toLocalDate(new Date(), r.tz ?? 'Asia/Bishkek');
 
-    const reported = await this.reportedMap(rows.map((r) => r.enrollmentId));
+    const reports = await this.reportsMap(rows.map((r) => r.enrollmentId));
+    const reported = new Map([...reports].map(([id, list]) => [id, new Set(list.map((r) => r.dayKey))]));
 
     let out = rows.filter((r) => {
       if (q) {
@@ -74,7 +75,25 @@ export class ParticipantsController {
       return a.firstName.localeCompare(b.firstName, 'ru');
     });
 
-    return out;
+    // Таблице панели нужно то, чего нет в самих строках: что сдано сегодня,
+    // сколько дней молчит и дошла ли до седьмого дня. Считается из тех же
+    // отчётов, по её местной дате — у каждой она своя.
+    const [marathon] = await this.db.select().from(marathons).where(eq(marathons.id, marathonId)).limit(1);
+
+    return out.map((r) => {
+      const list = reports.get(r.enrollmentId) ?? [];
+      const t = today(r);
+      const days = [...new Set(list.map((x) => x.dayKey))].sort();
+      const lastDay = days[days.length - 1];
+
+      return {
+        ...r,
+        todayTopicIds: list.filter((x) => x.dayKey === t).map((x) => x.topicId),
+        /** Дней без отчёта: 0 — сдала сегодня, null — не сдавала ни разу. */
+        daysSinceReport: lastDay ? daysBetween(lastDay, t) : null,
+        reachedDay7: marathon ? days.some((d) => marathonDayNumber(marathon.startDate, d) >= 7) : false,
+      };
+    });
   }
 
   /** CSV в UTF-8 с BOM и точкой с запятой — чтобы Excel открыл без плясок. */
@@ -272,6 +291,7 @@ export class ParticipantsController {
         firstName: participants.firstName,
         username: participants.username,
         tz: participants.tz,
+        placeLabel: participants.placeLabel,
         lang: participants.lang,
         blocked: participants.blocked,
         lastSeenAt: participants.lastSeenAt,
@@ -288,18 +308,19 @@ export class ParticipantsController {
       .orderBy(asc(participants.firstName));
   }
 
-  private async reportedMap(enrollmentIds: string[]): Promise<Map<string, Set<string>>> {
+  /** Отчёты по записям: ключ дня и тема — из них считается всё остальное. */
+  private async reportsMap(enrollmentIds: string[]): Promise<Map<string, { dayKey: string; topicId: string }[]>> {
     if (enrollmentIds.length === 0) return new Map();
     const rows = await this.db
-      .select({ enrollmentId: reports.enrollmentId, dayKey: reports.dayKey })
+      .select({ enrollmentId: reports.enrollmentId, dayKey: reports.dayKey, topicId: reports.topicId })
       .from(reports)
       .where(inArray(reports.enrollmentId, enrollmentIds));
 
-    const map = new Map<string, Set<string>>();
+    const map = new Map<string, { dayKey: string; topicId: string }[]>();
     for (const r of rows) {
-      const set = map.get(r.enrollmentId) ?? new Set<string>();
-      set.add(r.dayKey);
-      map.set(r.enrollmentId, set);
+      const list = map.get(r.enrollmentId) ?? [];
+      list.push({ dayKey: r.dayKey, topicId: r.topicId });
+      map.set(r.enrollmentId, list);
     }
     return map;
   }

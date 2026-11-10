@@ -1,8 +1,8 @@
-import { NOW, TZ_ORDER } from '../data/constants';
+import { FALLBACK_TZ, PRESETS } from '../data/constants';
 import type { AnyTopic, AppState, Preview, PreviewButton, PreviewStep } from '../types';
 import { activeTopics, currentData, currentMarathon, currentQuestion, currentTopic, fillPlaceholders, segments } from './derive';
 import { plural } from './format';
-import { fmt, localNow, openNow, tzLabel, win, winStr } from './time';
+import { fmt, localNow, openNow, placeLabel, win, winStr } from './time';
 
 /**
  * Карточка «Что получит участница» для текущего экрана.
@@ -47,7 +47,7 @@ export function buildPreview(s: AppState): Preview | null {
     const open = activeTopics(s).filter((x) => openNow(x));
     let n = 1;
     steps.push({ k: 'step', text: `${n++}. Участница записывает видеокружок (до 60 сек) — он не проверяется, только фиксируется` });
-    steps.push({ k: 'step', text: `${n++}. Бот спрашивает тему — только открытые сейчас по её времени. В Бишкеке в ${fmt(NOW)} это ${open.length} ${plural(open.length, 'кнопка', 'кнопки', 'кнопок')}:` });
+    steps.push({ k: 'step', text: `${n++}. Бот спрашивает тему — только открытые сейчас по её времени. В Бишкеке в ${fmt(localNow(FALLBACK_TZ))} это ${open.length} ${plural(open.length, 'кнопка', 'кнопки', 'кнопок')}:` });
     open.forEach((x) => steps.push({ k: 'btn', text: `${x.emoji} ${nm(x)}`, hot: x.id === t.id }));
 
     if (!open.some((x) => x.id === t.id)) {
@@ -118,8 +118,10 @@ export function buildPreview(s: AppState): Preview | null {
     steps.push({ k: 'btn', text: 'Кыргызча' });
     steps.push({ k: 'btn', text: 'Русский' });
     steps.push({ k: 'step', text: kg ? '2. «Азыр кайдасыз? Убакыт алкагын тандаңыз»' : '2. «Где вы сейчас? Выберите часовой пояс»' });
-    TZ_ORDER.forEach((k) => steps.push({ k: 'btn', text: tzLabel(k) }));
-    steps.push({ k: 'step', text: `3. Сразу — приветствие (текст выше) и кнопки тем, открытых сейчас. Для Бишкека в ${fmt(NOW)}:` });
+    // Кнопки места — ровно те, что показывает бот: у Бишкека и Оша одна зона,
+    // но кнопки разные, потому что время намаза у них расходится.
+    PRESETS.forEach((p) => steps.push({ k: 'btn', text: placeLabel(p.label, p.tz) }));
+    steps.push({ k: 'step', text: `3. Сразу — приветствие (текст выше) и кнопки тем, открытых сейчас. Для Бишкека в ${fmt(localNow(FALLBACK_TZ))}:` });
     open.forEach((x) => steps.push({ k: 'btn', text: `${x.emoji} ${nm(x)}`, hot: true }));
 
     // Напоминание, что окна у всех разные: в Москве сейчас открыто другое.

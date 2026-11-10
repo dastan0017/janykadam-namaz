@@ -1,7 +1,8 @@
 import { ParticipantPill } from '../components/ui';
-import { TODAY_LABEL, TZ, TZ_ORDER } from '../data/constants';
-import { currentData, currentMarathon, doneToday, filteredParts } from '../lib/derive';
-import { tzLabel } from '../lib/time';
+import { TZ, TZ_ORDER } from '../data/constants';
+import { NEVER_REPORTED } from '../api/map';
+import { currentData, currentMarathon, doneToday, filteredParts, isNewToday } from '../lib/derive';
+import { placeLabel } from '../lib/time';
 import { useActions, useAppState } from '../store/context';
 import type { ParticipantStatus, TzKey } from '../types';
 
@@ -16,7 +17,7 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
   const selN = s.pf.sel.length;
   const hasFilters = !!(s.pf.q || s.pf.status !== 'all' || s.pf.tz !== 'all' || s.pf.act !== 'all');
 
-  const lastLabel = (n: number) => (n === 0 ? 'сегодня' : n === 1 ? 'вчера' : n + ' дн. назад');
+  const lastLabel = (n: number) => (n >= NEVER_REPORTED ? 'ни разу' : n === 0 ? 'сегодня' : n === 1 ? 'вчера' : n + ' дн. назад');
 
   return (
     <>
@@ -106,7 +107,7 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ fontWeight: 600, display: 'block' }}>{p.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {tzLabel(p.tz)} · {lastLabel(p.last)}
+                  {placeLabel(p.place, p.tz)} · {lastLabel(p.last)}
                 </span>
               </span>
               <span style={{ fontWeight: 700 }}>{p.points}</span>
@@ -151,12 +152,12 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
                   <span style={{ minWidth: 0 }}>
                     <span className="ellipsis" style={{ fontWeight: 600, display: 'block' }}>
                       {p.name}
-                      {p.joined === TODAY_LABEL ? <span className="tag-new" style={{ marginLeft: 4 }}>новая</span> : null}
+                      {isNewToday(p) ? <span className="tag-new" style={{ marginLeft: 4 }}>новая</span> : null}
                     </span>
                     <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.user}</span>
                   </span>
                 </button>
-                <span style={{ fontSize: 12.5 }}>{tzLabel(p.tz)}</span>
+                <span style={{ fontSize: 12.5 }}>{placeLabel(p.place, p.tz)}</span>
                 <span>
                   <ParticipantPill status={p.status} />
                 </span>

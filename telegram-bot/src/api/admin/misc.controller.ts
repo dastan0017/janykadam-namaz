@@ -204,8 +204,19 @@ export class MiscController {
   /* ───────── настройки бота и тексты ───────── */
 
   @Get('bot/settings')
-  botSettingsGet() {
-    return this.settings.getSettings();
+  async botSettingsGet() {
+    // Имя и username бота живут в Telegram, а не в базе: панель показывает
+    // deep link `t.me/<username>?start=<код>` и даёт править имя.
+    const settings = await this.settings.getSettings();
+    let username = '';
+    let name = '';
+    try {
+      username = this.bot.bot.botInfo.username;
+      name = this.bot.bot.botInfo.first_name;
+    } catch {
+      // Бот ещё не инициализирован (или Telegram недоступен) — панель покажет прочерк.
+    }
+    return { ...settings, username, name };
   }
 
   @Patch('bot/settings')

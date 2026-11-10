@@ -1,4 +1,5 @@
 import { TZ, TZ_ORDER } from '../data/constants';
+import { NEVER_REPORTED } from '../api/map';
 import { activeTopics, currentData, doneToday } from '../lib/derive';
 import { useActions, useAppState } from '../store/context';
 
@@ -21,7 +22,8 @@ export function Analytics() {
 
   const funnel = [
     { id: 'f1', label: 'Зарегистрировались', n: all.length },
-    { id: 'f2', label: 'Сдали первый отчёт', n: all.filter((p) => p.status !== 'left' || p.points > 20).length },
+    // «Сдала хоть раз» — это и есть первый отчёт: у не сдававших last = NEVER_REPORTED.
+    { id: 'f2', label: 'Сдали первый отчёт', n: all.filter((p) => p.last < NEVER_REPORTED).length },
     { id: 'f3', label: 'Сдали день 7', n: all.filter((p) => p.d7).length },
     { id: 'f4', label: 'Активны сегодня', n: act.filter((p) => doneToday(s, p)).length },
   ];
@@ -106,8 +108,10 @@ export function Analytics() {
                 onClick={() => set({ screen: 'participants', drawerId: p.id })}
               >
                 <span style={{ fontWeight: 600 }}>{p.name}</span>
-                <span style={{ color: 'var(--muted)' }}>{TZ[p.tz]?.city ?? '—'}</span>
-                <span style={{ color: 'var(--danger)', fontWeight: 600, textAlign: 'right' }}>{p.last} дн.</span>
+                <span style={{ color: 'var(--muted)' }}>{p.place || TZ[p.tz]?.city || '—'}</span>
+                <span style={{ color: 'var(--danger)', fontWeight: 600, textAlign: 'right' }}>
+                  {p.last >= NEVER_REPORTED ? 'ни разу' : `${p.last} дн.`}
+                </span>
               </button>
             ))}
           </div>

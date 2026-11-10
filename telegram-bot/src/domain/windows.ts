@@ -212,6 +212,13 @@ export function dayEvaluationAt(topics: EnabledTopics, dayKey: DayKey, tz: strin
   return new Date(Math.max(...mandatory.map((w) => w.closesAt.getTime())));
 }
 
+/** Сколько календарных дней между двумя ключами дня: `daysBetween(вчера, сегодня)` = 1. */
+export function daysBetween(from: DayKey, to: DayKey): number {
+  const a = DateTime.fromISO(from, { zone: 'utc' });
+  const b = DateTime.fromISO(to, { zone: 'utc' });
+  return Math.round(b.diff(a, 'days').days);
+}
+
 /** Номер дня марафона в местном времени участницы: 1 — день старта. */
 export function marathonDayNumber(startDate: string, dayKey: DayKey): number {
   const start = DateTime.fromISO(startDate, { zone: 'utc' });

@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import type { AppState, Marathon, Question, Role, Screen } from '../types';
+import type { TelegramAuthPayload } from '../api/dto';
+import type { AppState, BotSettings, Marathon, Question, Role, Screen } from '../types';
 
 export type Patch = Partial<AppState>;
 export type Updater = (s: AppState) => Patch;
@@ -9,6 +10,10 @@ export interface Actions {
   go: (screen: Screen, extra?: Patch) => void;
   toast: (msg: string) => void;
   setRoleView: (role: Role) => void;
+
+  // вход
+  loginWithTelegram: (payload: TelegramAuthPayload) => Promise<void>;
+  logout: () => void;
 
   // марафоны
   switchM: (id: string) => void;
@@ -52,6 +57,7 @@ export interface Actions {
   send: () => void;
 
   // бот и пользователи
+  setBot: (patch: Partial<BotSettings>) => void;
   saveBotName: () => void;
   setRole: (uid: string, role: Role) => void;
   removeUser: (uid: string) => void;

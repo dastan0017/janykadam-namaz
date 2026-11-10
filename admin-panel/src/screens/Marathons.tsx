@@ -85,15 +85,20 @@ export function Marathons() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
         {list.map((x) => {
+          // Данные грузятся по одному марафону, поэтому для остальных берём
+          // сводку из списка — иначе карточки показывали бы нули.
           const dd = s.data[x.id];
-          const act = dd.participants.filter((p) => p.status === 'active');
-          const done = act.filter((p) => p.today.length).length;
-          const nz = (dd.namaz ?? []).length;
-          const topicsLabel = nz + dd.topics.length + (nz ? ` · из них ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')}` : '');
+          const loaded = !!dd && s.loaded.includes(x.id);
+          const act = (dd?.participants ?? []).filter((p) => p.status === 'active');
+          const activeCount = loaded ? act.length : (x.stats?.active ?? 0);
+          const done = loaded ? act.filter((p) => p.today.length).length : (x.stats?.submittedToday ?? 0);
+          const nz = loaded ? (dd.namaz ?? []).length : (x.namazCount ?? 0);
+          const own = loaded ? dd.topics.length : (x.topicsCount ?? 0);
+          const topicsLabel = nz + own + (nz ? ` · из них ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')}` : '');
           const pct =
             x.status === 'running'
-              ? act.length
-                ? Math.round((done / act.length) * 100) + '% сдали сегодня'
+              ? activeCount
+                ? Math.round((done / activeCount) * 100) + '% сдали сегодня'
                 : '—'
               : x.status === 'finished'
                 ? 'завершён'
@@ -138,7 +143,7 @@ export function Marathons() {
                 <div>
                   <span style={{ color: 'var(--muted)' }}>Участниц</span>
                   <br />
-                  {x.reported ?? dd.participants.length}
+                  {x.reported ?? dd?.participants.length ?? 0}
                 </div>
                 <div>
                   <span style={{ color: 'var(--muted)' }}>Тем</span>

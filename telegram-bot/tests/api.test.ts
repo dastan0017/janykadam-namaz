@@ -20,6 +20,13 @@ const TOKEN = '123456:TEST_TOKEN_PLACEHOLDER_FOR_LOCAL_DEV';
 const ADMIN_TG = '900001';
 const CURATOR_TG = '900002';
 const SECOND_ADMIN_TG = '900003';
+const TEST_TG_IDS = [ADMIN_TG, CURATOR_TG, SECOND_ADMIN_TG];
+
+/**
+ * Статусы чужих учёток, которые тест отключил по ходу проверки «последний админ».
+ * База у тестов та же, что у разработки, — оставлять её сломанной нельзя.
+ */
+const restoreStatus = new Map<string, 'invited' | 'active' | 'disabled'>();
 
 let app: NestFastifyApplication;
 let db: Db;
@@ -53,7 +60,7 @@ beforeAll(async () => {
   db = drizzle(pool, { schema });
 
   // Тестовые учётки панели; реальные не трогаем.
-  await db.delete(schema.adminUsers).where(inArray(schema.adminUsers.tgUserId, [ADMIN_TG, CURATOR_TG, SECOND_ADMIN_TG]));
+  await db.delete(schema.adminUsers).where(inArray(schema.adminUsers.tgUserId, TEST_TG_IDS));
   await db.insert(schema.adminUsers).values([
     { name: 'Тест Админ', tgUsername: 'test_admin_jk', tgUserId: ADMIN_TG, role: 'admin', status: 'active' },
     { name: 'Тест Куратор', tgUsername: 'test_curator_jk', tgUserId: CURATOR_TG, role: 'curator', status: 'active' },
@@ -74,7 +81,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await db.delete(schema.adminUsers).where(inArray(schema.adminUsers.tgUserId, [ADMIN_TG, CURATOR_TG, SECOND_ADMIN_TG]));
+  for (const [id, status] of restoreStatus) {
+    await db.update(schema.adminUsers).set({ status }).where(eq(schema.adminUsers.id, id));
+  }
+  await db.delete(schema.adminUsers).where(inArray(schema.adminUsers.tgUserId, TEST_TG_IDS));
   await app?.close();
   await pool?.end();
 });
@@ -154,6 +164,8 @@ describe('роли', () => {
     const keepId = others.find((u) => u.tgUserId === ADMIN_TG)!.id;
     for (const u of others) {
       if (u.id === keepId) continue;
+      // Чужие учётки восстановим после теста: база одна с рабочей.
+      if (!TEST_TG_IDS.includes(u.tgUserId ?? '')) restoreStatus.set(u.id, u.status);
       await db.update(schema.adminUsers).set({ status: 'disabled' }).where(eq(schema.adminUsers.id, u.id));
     }
 

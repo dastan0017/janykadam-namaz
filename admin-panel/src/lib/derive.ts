@@ -1,9 +1,14 @@
-import { NAMAZ, TODAY_LABEL, TZ, TZ_ORDER } from '../data/constants';
+import { FALLBACK_TZ, NAMAZ, TZ, TZ_ORDER } from '../data/constants';
 import type { AnyTopic, AppState, Marathon, MarathonData, Participant, Segment, Topic, ValidationIssue } from '../types';
 import { plural } from './format';
-import { nsTopic, toMin, win, winStr } from './time';
+import { localDate, nsTopic, toMin, win, winStr } from './time';
 
-const EMPTY_DATA: MarathonData = { topics: [], namaz: [], participants: [], trend: [], ledger: {}, broadcasts: [] };
+/** Вошла сегодня — по её местной дате, а не по дате сервера. */
+export function isNewToday(p: Participant): boolean {
+  return !!p.joined && p.joined === localDate(p.tz || FALLBACK_TZ);
+}
+
+const EMPTY_DATA: MarathonData = { topics: [], namaz: [], participants: [], trend: [], ledger: {}, recent: {}, broadcasts: [] };
 
 export function currentMarathon(s: AppState): Marathon | undefined {
   return s.marathons.find((m) => m.id === s.mid) ?? s.marathons[0];
@@ -57,7 +62,7 @@ export function stats(s: AppState): Stats {
   const done = act.filter((p) => doneToday(s, p)).length;
   const actIds = new Set(activeTopics(s).map((t) => t.id));
   const reports = act.reduce((n, p) => n + p.today.filter((id) => actIds.has(id)).length, 0);
-  const fresh = ps.filter((p) => p.joined === TODAY_LABEL);
+  const fresh = ps.filter(isNewToday);
   return {
     total: ps.length,
     active: act.length,
@@ -116,7 +121,7 @@ export function validate(s: AppState): ValidationIssue[] {
   }
 
   if (m) {
-    if (m.status === 'draft' && m.start < '2026-11-08') E(`Дата начала ${m.start} уже прошла`, 'settings');
+    if (m.status === 'draft' && m.start < localDate(FALLBACK_TZ)) E(`Дата начала ${m.start} уже прошла`, 'settings');
     if (m.end < m.start) E('Дата окончания раньше начала', 'settings');
   }
 
@@ -134,7 +139,7 @@ export function filteredParts(s: AppState): Participant[] {
     if (f.act === 'today') return doneToday(s, p);
     if (f.act === 'nottoday') return p.status === 'active' && !doneToday(s, p);
     if (f.act === 'stopped') return p.status === 'active' && p.last >= 3;
-    if (f.act === 'new') return p.joined === TODAY_LABEL;
+    if (f.act === 'new') return isNewToday(p);
     return true;
   });
 
@@ -158,7 +163,7 @@ export function segments(s: AppState): Segment[] {
     { id: 'stopped', name: 'Молчат 3+ дня', list: act.filter((p) => p.last >= 3) },
     { id: 'paused', name: 'На паузе', list: ps.filter((p) => p.status === 'paused') },
     ...TZ_ORDER
-      .map((k) => ({ id: 'tz_' + k, name: 'Пояс ' + TZ[k].city + ' · ' + TZ[k].utc, list: act.filter((p) => p.tz === k) }))
+      .map((k) => ({ id: 'tz_' + k, name: 'Пояс ' + (TZ[k]?.city ?? k) + ' · ' + (TZ[k]?.utc ?? ''), list: act.filter((p) => p.tz === k) }))
       .filter((x) => x.list.length),
   ];
 
@@ -184,5 +189,5 @@ export function issueSummary(errs: number, warns: number): string {
 }
 
 export const isCurator = (s: AppState) => s.role === 'curator';
-export const meId = (s: AppState) => (isCurator(s) ? 'u4' : 'u1');
-export const meName = (s: AppState) => (isCurator(s) ? 'Айгерим Сапарова' : 'Жазгүл Аманова');
+export const meId = (s: AppState) => s.me?.id ?? '';
+export const meName = (s: AppState) => s.me?.name ?? '';

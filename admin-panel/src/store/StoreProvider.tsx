@@ -1,22 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { GLOBAL, NAMAZ, TODAY_LABEL } from '../data/constants';
+import { ApiError, USE_SEED, setUnauthorizedHandler } from '../api/client';
+import { api } from '../api/endpoints';
+import { loadGlobal, loadMarathon } from '../api/load';
+import {
+  marathonPatch, optionPatch, parseCommands, questionPatch, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
+} from '../api/map';
+import { GLOBAL, NAMAZ } from '../data/constants';
+import { initialState } from '../data/initial';
 import { seed } from '../data/seed';
-import { currentData, currentMarathon, filteredParts, meId, meName, segments } from '../lib/derive';
-import { plural, uid } from '../lib/format';
-import { tzLabel } from '../lib/time';
+import { currentData, currentMarathon, filteredParts, segments } from '../lib/derive';
+import { plural, slugify } from '../lib/format';
+import { localDate, tzLabel } from '../lib/time';
 import type { AppState, Marathon, MarathonData, QuestionType } from '../types';
 import { ActionsCtx, StateCtx, type Actions, type Patch, type Updater } from './context';
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
-const emptyData = (): MarathonData => ({ topics: [], namaz: [], participants: [], trend: [], ledger: {}, broadcasts: [] });
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-
-
+/**
+ * Состояние панели.
+ *
+ * Данные живут на бэкенде; здесь их копия, которой рисуются экраны. Правка
+ * применяется сразу локально — интерфейс не должен ждать сеть, — а потом уходит
+ * в API. Если запрос не прошёл, показывается причина и данные перезагружаются:
+ * лучше вернуть правду, чем оставить на экране то, чего в базе нет.
+ */
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(seed);
+  const [state, setState] = useState<AppState>(initialState);
   const toastTimer = useRef<number | undefined>(undefined);
-  const sendTimer = useRef<number | undefined>(undefined);
+  const pollTimer = useRef<number | undefined>(undefined);
+  const debounced = useRef(new Map<string, number>());
 
   const set = useCallback((patch: Patch | Updater) => {
     setState((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }));
@@ -28,13 +42,112 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toastTimer.current = window.setTimeout(() => setState((s) => ({ ...s, toast: null })), 3600);
   }, []);
 
-  useEffect(
-    () => () => {
+  /* ───────── загрузка ───────── */
+
+  const reloadGlobal = useCallback(async () => {
+    const patch = await loadGlobal();
+    setState((s) => ({ ...s, ...patch }));
+    return patch;
+  }, []);
+
+  const reloadMarathon = useCallback(async (id: string) => {
+    const data = await loadMarathon(id);
+    setState((s) => ({
+      ...s,
+      data: { ...s.data, [id]: data },
+      loaded: s.loaded.includes(id) ? s.loaded : [...s.loaded, id],
+      loading: false,
+    }));
+  }, []);
+
+  const bootstrap = useCallback(async () => {
+    // Разработка без бэкенда: панель работает на фикстурах и ничего не сохраняет.
+    if (USE_SEED) {
+      setState(seed());
+      return;
+    }
+    try {
+      const me = await api.me();
+      const patch = await loadGlobal();
+      const first = patch.marathons.find((m) => m.status === 'running') ?? patch.marathons[0];
+
+      setState((s) => ({
+        ...s,
+        ...patch,
+        auth: 'ready',
+        authError: null,
+        me: toMe(me),
+        role: me.role,
+        mid: first?.id ?? null,
+        loading: !!first,
+      }));
+
+      if (first) await reloadMarathon(first.id);
+    } catch (err) {
+      const anonymous = err instanceof ApiError && err.unauthorized;
+      setState((s) => ({
+        ...s,
+        auth: 'anonymous',
+        me: null,
+        authError: anonymous ? null : errorText(err),
+      }));
+    }
+  }, [reloadMarathon]);
+
+  /**
+   * Журнал баллов и окна на сегодня грузятся, когда открывают карточку:
+   * тянуть их для всех участниц сразу не нужно, а в таблице они не видны.
+   */
+  useEffect(() => {
+    const pid = state.drawerId;
+    const mid = state.mid;
+    if (!pid || !mid || state.data[mid]?.ledger[pid]) return;
+
+    let alive = true;
+    void api
+      .participant(pid, mid)
+      .then((detail) => {
+        if (!alive) return;
+        setState((s) => {
+          const data = s.data[mid];
+          if (!data) return s;
+          // Сколько отчётов в каждый из последних дней — настоящие, из базы.
+          const byDay: Record<string, number> = {};
+          for (const r of detail.last7) byDay[r.dayKey] = (byDay[r.dayKey] ?? 0) + 1;
+
+          return {
+            ...s,
+            data: {
+              ...s.data,
+              [mid]: {
+                ...data,
+                ledger: { ...data.ledger, [pid]: detail.ledger.map(toLedger) },
+                recent: { ...data.recent, [pid]: byDay },
+              },
+            },
+          };
+        });
+      })
+      .catch(() => {
+        // Карточка откроется и без журнала — показывать ошибку здесь незачем.
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [state.drawerId, state.mid, state.data]);
+
+  useEffect(() => {
+    const timers = debounced.current;
+    setUnauthorizedHandler(() => setState((s) => ({ ...s, auth: 'anonymous', me: null })));
+    void bootstrap();
+    return () => {
+      setUnauthorizedHandler(null);
       window.clearTimeout(toastTimer.current);
-      window.clearInterval(sendTimer.current);
-    },
-    [],
-  );
+      window.clearInterval(pollTimer.current);
+      for (const t of timers.values()) window.clearTimeout(t);
+    };
+  }, [bootstrap]);
 
   const actions = useMemo<Actions>(() => {
     /** Правка данных марафонов: клонирует data и marathons, чтобы мутировать их свободно. */
@@ -47,12 +160,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    /**
+     * Запрос к API. Ошибку показывает тостом и возвращает данные с бэкенда:
+     * локальная правка могла не сохраниться, и на экране осталась бы неправда.
+     */
+    const call = async (fn: () => Promise<unknown>, opts: { ok?: string; reload?: string | 'global' } = {}) => {
+      try {
+        await fn();
+        if (opts.ok) toast(opts.ok);
+        return true;
+      } catch (err) {
+        toast(errorText(err));
+        if (opts.reload === 'global') void reloadGlobal().catch(() => {});
+        else if (opts.reload) void reloadMarathon(opts.reload).catch(() => {});
+        return false;
+      }
+    };
+
+    /** Отложенный запрос: текстовые поля правятся посимвольно, а сохранять надо раз. */
+    const later = (key: string, fn: () => void, ms = 600) => {
+      window.clearTimeout(debounced.current.get(key));
+      debounced.current.set(key, window.setTimeout(fn, ms));
+    };
+
     const go: Actions['go'] = (screen, extra) => set({ screen, navOpen: false, ...extra });
 
     const confirmAction = (title: string, body: string, ok: string, danger: boolean, onOk: () => void) =>
       set({ confirm: { title, body, ok, danger, onOk } });
-
-    const logAudit = (s: AppState, what: string) => [{ at: '8 ноя 09:40', who: meName(s), what }, ...s.audit];
 
     return {
       set,
@@ -60,7 +194,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       toast,
       setRoleView: (role) => set(role === 'curator' ? { role, drawerId: null, invite: null } : { role }),
 
-      switchM: (id) =>
+      /* ───────── вход ───────── */
+
+      loginWithTelegram: async (payload) => {
+        setState((s) => ({ ...s, auth: 'checking', authError: null }));
+        try {
+          await api.loginTelegram(payload);
+          await bootstrap();
+        } catch (err) {
+          setState((s) => ({ ...s, auth: 'anonymous', authError: errorText(err) }));
+        }
+      },
+
+      logout: () => {
+        void api.logout().catch(() => {});
+        setState(() => ({ ...initialState(), auth: 'anonymous' }));
+      },
+
+      /* ───────── марафоны ───────── */
+
+      switchM: (id) => {
+        if (!state.loaded.includes(id)) {
+          set({ loading: true });
+          void reloadMarathon(id).catch((err) => {
+            setState((s) => ({ ...s, loading: false }));
+            toast(errorText(err));
+          });
+        }
         set((s) => ({
           mid: id,
           topicId: null,
@@ -69,21 +229,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           pf: { ...s.pf, sel: [] },
           // С общих экранов переключение марафона не уводит.
           screen: GLOBAL.includes(s.screen) ? s.screen : 'overview',
-        })),
+        }));
+      },
 
       duplicate: (id) => {
         const src = state.marathons.find((m) => m.id === id);
         const dd = state.data[id];
-        if (!src || !dd) return;
-        mut((d, _s, ms) => {
-          const n = 'm' + (ms.length + 4);
-          ms.push({ ...src, id: n, code: n, name: 'Копия: ' + src.name, status: 'draft', start: '2026-12-01', end: '2026-12-30', regOpen: false, reported: undefined });
-          d[n] = { topics: clone(d[id].topics), namaz: [...(d[id].namaz ?? [])], participants: [], trend: [], ledger: {}, broadcasts: [] };
-        });
-        const nz = (dd.namaz ?? []).length;
-        toast(
-          `Создан черновик «Копия: ${src.name}» — ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')} и ${dd.topics.length} ${plural(dd.topics.length, 'своя тема', 'свои темы', 'своих тем')}, без участниц`,
-        );
+        if (!src) return;
+        void (async () => {
+          try {
+            const copy = await api.duplicateMarathon(id);
+            await reloadGlobal();
+            await reloadMarathon(copy.id);
+            const nz = (dd?.namaz ?? []).length;
+            const nt = dd?.topics.length ?? 0;
+            toast(
+              `Создан черновик «${copy.name}» — ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')} и ${nt} ${plural(nt, 'своя тема', 'свои темы', 'своих тем')}, без участниц`,
+            );
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
       },
 
       createM: () => {
@@ -93,18 +259,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           set({ newM: { ...nm, err: 'Название обязательно' } });
           return;
         }
-        mut((d, _s, ms) => {
-          const n = 'm' + (ms.length + 4);
-          ms.push({
-            id: n, code: n, name: nm.name.trim(), status: 'draft',
-            start: nm.start || '2026-12-01', end: nm.end || '2026-12-30',
-            lang: 'kg', regOpen: false, pointsDefault: 10, streakBonus: 5, streakEvery: 7,
-            latePasses: 2, excused: 3, pauseAllowed: true, remindMorning: '05:30', remindEvening: '21:00', skipSubmitted: true,
-          });
-          d[n] = emptyData();
-          return { newM: null };
-        });
-        toast('Черновик создан. На странице «Темы» отметьте нужные намазы и добавьте свои темы.');
+        const name = nm.name.trim();
+        void (async () => {
+          try {
+            const created = await api.createMarathon({
+              code: slugify(name),
+              name,
+              startDate: nm.start || localDate('Asia/Bishkek'),
+              endDate: nm.end || localDate('Asia/Bishkek'),
+            });
+            await reloadGlobal();
+            await reloadMarathon(created.id);
+            set({ newM: null, mid: created.id });
+            toast(`Черновик создан, код ${created.code}. На странице «Темы» отметьте намазы и добавьте свои темы.`);
+          } catch (err) {
+            set((s) => ({ newM: s.newM ? { ...s.newM, err: errorText(err) } : null }));
+          }
+        })();
       },
 
       deleteM: (id) => {
@@ -118,55 +289,95 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             : `Удалятся ${n} участниц, все отчёты и баллы. Это действие нельзя отменить.`,
           'Удалить',
           true,
-          () =>
-            mut((d, s, ms) => {
-              const i = ms.findIndex((x) => x.id === id);
-              ms.splice(i, 1);
-              delete d[id];
-              return { confirm: null, mid: s.mid === id ? ms[0]?.id ?? null : s.mid };
-            }),
+          () => {
+            set({ confirm: null });
+            void (async () => {
+              if (!(await call(() => api.deleteMarathon(id), { reload: 'global' }))) return;
+              mut((d, s, ms) => {
+                const i = ms.findIndex((x) => x.id === id);
+                if (i >= 0) ms.splice(i, 1);
+                delete d[id];
+                return { mid: s.mid === id ? (ms[0]?.id ?? null) : s.mid };
+              });
+            })();
+          },
         );
       },
 
       copyLink: (id) => {
         const m = state.marathons.find((x) => x.id === id);
         if (!m) return;
+        if (!state.bot.username) {
+          toast('Username бота неизвестен — бот ещё не поднялся или Telegram недоступен');
+          return;
+        }
         const link = `https://t.me/${state.bot.username}?start=${m.code}`;
         void navigator.clipboard?.writeText(link).catch(() => {});
         toast(m.status === 'draft' ? `Скопировано: ${link} — заработает после запуска марафона` : `Скопировано: ${link}`);
       },
 
-      setM: (k, v) =>
+      setM: (k, v) => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((_d, s, ms) => {
           const m = ms.find((x) => x.id === s.mid);
           if (m) (m[k] as Marathon[typeof k]) = v;
-        }),
-
-      launch: () => {
-        mut((_d, s, ms) => {
-          const m = ms.find((x) => x.id === s.mid);
-          if (m) m.status = 'recruiting';
         });
-        toast('Марафон открыт для набора. Deep link активен.');
+        const body = marathonPatch(k, v);
+        if (body) later(`marathon:${mid}:${k}`, () => void call(() => api.patchMarathon(mid, body), { reload: 'global' }));
       },
 
-      setT: (k, v) =>
+      launch: () => {
+        const mid = state.mid;
+        if (!mid) return;
+        void (async () => {
+          try {
+            await api.launch(mid);
+            await reloadGlobal();
+            toast('Марафон открыт для набора. Deep link активен.');
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
+      },
+
+      /* ───────── темы ───────── */
+
+      setT: (k, v) => {
+        const topicId = state.topicId;
+        const mid = state.mid;
+        if (!topicId || !mid) return;
         mut((d, s) => {
           const t = s.mid ? d[s.mid].topics.find((x) => x.id === s.topicId) : undefined;
           if (t) (t as unknown as Record<string, unknown>)[k] = v;
-        }),
+        });
+        const body = topicPatch(k, v);
+        if (body) later(`topic:${topicId}:${k}`, () => void call(() => api.patchTopic(topicId, body), { reload: mid }));
+      },
 
       toggleTopic: (id) => {
         const ns = NAMAZ.find((x) => x.id === id);
         const own = currentData(state).topics.find((x) => x.id === id);
         if (!ns && !own) return;
 
+        const mid = state.mid;
+        if (!mid) return;
         const m = currentMarathon(state);
         const n = currentData(state).participants.filter((p) => p.status === 'active').length;
-        const on = ns ? (currentData(state).namaz ?? []).includes(id) : own!.active;
+        const enabled = currentData(state).namaz ?? [];
+        const on = ns ? enabled.includes(id) : own!.active;
         const name = (ns ?? own)!.nameKg || 'без названия';
 
-        const apply = (d: Record<string, MarathonData>, s: AppState) => {
+        const save = async (confirmRemoval: boolean) => {
+          if (ns) {
+            const next = on ? enabled.filter((x) => x !== id) : [...enabled, id];
+            const ordered = NAMAZ.filter((x) => next.includes(x.id)).map((x) => x.id);
+            return call(() => api.setNamaz(mid, ordered, confirmRemoval), { reload: mid });
+          }
+          return call(() => api.patchTopic(id, { active: !on }), { reload: mid });
+        };
+
+        const applyLocal = (d: Record<string, MarathonData>, s: AppState) => {
           if (!s.mid) return;
           if (ns) {
             const a = d[s.mid].namaz ?? (d[s.mid].namaz = []);
@@ -192,18 +403,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             false,
             () => {
               mut((d, s) => {
-                apply(d, s);
+                applyLocal(d, s);
                 return { confirm: null };
               });
-              toast(`«${name}» выключена. Записано в журнал.`);
+              void (async () => {
+                if (await save(true)) toast(`«${name}» выключена. Записано в журнал.`);
+              })();
             },
           );
         } else {
-          mut((d, s) => apply(d, s));
+          mut((d, s) => applyLocal(d, s));
+          void save(false);
         }
       },
 
-      moveTopic: (id, dir) =>
+      moveTopic: (id, dir) => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const a = d[s.mid].topics;
@@ -211,83 +427,127 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const j = i + dir;
           if (j < 0 || j >= a.length) return;
           [a[i], a[j]] = [a[j], a[i]];
-        }),
+          void call(() => api.reorderTopics(mid, a.map((t) => t.id)), { reload: mid });
+        });
+      },
 
       addTopic: () => {
-        const id = uid();
+        const mid = state.mid;
+        if (!mid) return;
         const pts = currentMarathon(state)?.pointsDefault ?? 5;
-        mut((d, s) => {
-          if (!s.mid) return;
-          d[s.mid].topics.push({
-            id, emoji: '🕊', nameKg: '', nameRu: '', active: true, mode: 'fixed',
-            start: '05:00', end: '22:00', points: pts, freq: 'daily', mandatory: false, remind: 0, questions: [],
-          });
-          return { screen: 'topicEditor', topicId: id, topicTab: 'settings' };
-        });
+        void (async () => {
+          try {
+            const created = await api.createTopic(mid, {
+              emoji: '🕊',
+              nameKg: '',
+              nameRu: '',
+              active: true,
+              startLocal: '05:00',
+              endLocal: '22:00',
+              points: pts,
+              freq: 'daily',
+              mandatory: false,
+              remindOffsetMin: 0,
+            });
+            mut((d, s) => {
+              if (!s.mid) return;
+              d[s.mid].topics.push(toTopic({ ...created, questions: [] }));
+              return { screen: 'topicEditor', topicId: created.id, topicTab: 'settings' };
+            });
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
       },
 
       deleteTopic: (id) => {
         const t = currentData(state).topics.find((x) => x.id === id);
-        if (!t) return;
+        const mid = state.mid;
+        if (!t || !mid) return;
         confirmAction(
           `Удалить тему «${t.nameKg || 'без названия'}»?`,
           'Удалятся вопросы и варианты ответов. Уже принятые отчёты и баллы по теме сохранятся в истории участниц.',
           'Удалить тему',
           true,
-          () =>
+          () => {
             mut((d, s) => {
               if (!s.mid) return;
               d[s.mid].topics = d[s.mid].topics.filter((x) => x.id !== id);
               return { confirm: null, screen: 'topics', topicId: null };
-            }),
+            });
+            void call(() => api.deleteTopic(id), { reload: mid });
+          },
         );
       },
 
-      setQ: (k, v) =>
+      /* ───────── вопросы и варианты ответов ───────── */
+
+      setQ: (k, v) => {
+        const qId = state.qId;
+        const mid = state.mid;
+        if (!qId || !mid) return;
+
         mut((d, s) => {
           if (!s.mid) return;
           const q = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((x) => x.id === s.qId);
           if (!q) return;
           (q as unknown as Record<string, unknown>)[k] = v;
-
-          // Смена типа переписывает варианты: у шкалы и да/нет надписи заданы типом.
-          if (k === 'type') {
-            const type = v as QuestionType;
-            if (type === 'scale') {
-              q.options = [1, 2, 3, 4, 5].map((n) => ({ id: 'o' + n, kg: String(n), ru: String(n), pts: 1, locked: true }));
-            } else if (type === 'yesno') {
-              q.options = [
-                { id: 'oy', kg: 'Ооба', ru: 'Да', pts: 5, locked: true },
-                { id: 'on', kg: 'Жок', ru: 'Нет', pts: 0, locked: true },
-              ];
-            } else if (type !== 'single' && type !== 'multi') {
-              q.options = [];
-            } else if (q.options.some((o) => o.locked)) {
-              q.options = q.options.map((o) => ({ ...o, locked: false }));
-            }
-          }
-        }),
-
-      addQ: () => {
-        const id = uid();
-        mut((d, s) => {
-          if (!s.mid) return;
-          d[s.mid].topics
-            .find((t) => t.id === s.topicId)
-            ?.questions.push({ id, textKg: '', textRu: '', type: 'single', required: true, options: [{ id: uid(), kg: '', ru: '', pts: 0 }] });
-          return { screen: 'questionEditor', qId: id };
         });
+
+        const body = questionPatch(k as string, v);
+        if (!body) return;
+
+        if (k === 'type') {
+          // Смена типа переписывает варианты на бэкенде: у шкалы и да/нет надписи
+          // заданы типом. Поэтому ответ сервера забираем целиком, а не угадываем.
+          void (async () => {
+            try {
+              await api.patchQuestion(qId, body);
+              await reloadMarathon(mid);
+              void (v as QuestionType);
+            } catch (err) {
+              toast(errorText(err));
+              void reloadMarathon(mid).catch(() => {});
+            }
+          })();
+          return;
+        }
+        later(`question:${qId}:${String(k)}`, () => void call(() => api.patchQuestion(qId, body), { reload: mid }));
       },
 
-      delQ: (id, leave) =>
+      addQ: () => {
+        const topicId = state.topicId;
+        const mid = state.mid;
+        if (!topicId || !mid) return;
+        void (async () => {
+          try {
+            const q = await api.createQuestion(topicId, { type: 'single', required: true, textKg: '', textRu: '' });
+            // У одиночного выбора вариантов нет вовсе — редактору нужен хотя бы один.
+            await api.createOption(q.id, { labelKg: '', labelRu: '', points: 0 });
+            await reloadMarathon(mid);
+            set({ screen: 'questionEditor', qId: q.id });
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
+      },
+
+      delQ: (id, leave) => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const t = d[s.mid].topics.find((x) => x.id === s.topicId);
           if (t) t.questions = t.questions.filter((q) => q.id !== id);
           return leave ? { screen: 'topicEditor', topicTab: 'questions', qId: null } : {};
-        }),
+        });
+        void call(() => api.deleteQuestion(id), { reload: mid });
+      },
 
-      moveQ: (id, dir) =>
+      moveQ: (id, dir) => {
+        const mid = state.mid;
+        const topicId = state.topicId;
+        if (!mid || !topicId) return;
         mut((d, s) => {
           if (!s.mid) return;
           const a = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions;
@@ -296,9 +556,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const j = i + dir;
           if (j < 0 || j >= a.length) return;
           [a[i], a[j]] = [a[j], a[i]];
-        }),
+          void call(() => api.reorderQuestions(topicId, a.map((q) => q.id)), { reload: mid });
+        });
+      },
 
-      setO: (oid, k, v) =>
+      setO: (oid, k, v) => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const o = d[s.mid].topics
@@ -306,25 +570,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ?.questions.find((q) => q.id === s.qId)
             ?.options.find((x) => x.id === oid);
           if (o) (o as unknown as Record<string, unknown>)[k] = v;
-        }),
+        });
+        later(`option:${oid}:${k}`, () => void call(() => api.patchOption(oid, optionPatch(k, v)), { reload: mid }));
+      },
 
-      addO: () =>
-        mut((d, s) => {
-          if (!s.mid) return;
-          d[s.mid].topics
-            .find((t) => t.id === s.topicId)
-            ?.questions.find((q) => q.id === s.qId)
-            ?.options.push({ id: uid(), kg: '', ru: '', pts: 0 });
-        }),
+      addO: () => {
+        const qId = state.qId;
+        const mid = state.mid;
+        if (!qId || !mid) return;
+        void (async () => {
+          try {
+            const created = await api.createOption(qId, { labelKg: '', labelRu: '', points: 0 });
+            mut((d, s) => {
+              if (!s.mid) return;
+              d[s.mid].topics
+                .find((t) => t.id === s.topicId)
+                ?.questions.find((q) => q.id === s.qId)
+                ?.options.push({ id: created.id, kg: '', ru: '', pts: 0 });
+            });
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
+      },
 
-      delO: (oid) =>
+      delO: (oid) => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const q = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((x) => x.id === s.qId);
           if (q) q.options = q.options.filter((o) => o.id !== oid);
-        }),
+        });
+        void call(() => api.deleteOption(oid), { reload: mid });
+      },
 
-      moveO: (oid, dir) =>
+      moveO: (oid, dir) => {
+        const mid = state.mid;
+        const qId = state.qId;
+        if (!mid || !qId) return;
         mut((d, s) => {
           if (!s.mid) return;
           const a = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((q) => q.id === s.qId)?.options;
@@ -333,7 +617,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const j = i + dir;
           if (j < 0 || j >= a.length) return;
           [a[i], a[j]] = [a[j], a[i]];
-        }),
+          void call(() => api.reorderOptions(qId, a.map((o) => o.id)), { reload: mid });
+        });
+      },
+
+      /* ───────── участницы ───────── */
 
       setPf: (k, v) => set((s) => ({ pf: { ...s.pf, [k]: v } })),
 
@@ -349,31 +637,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       bulk: (action) => {
         const n = state.pf.sel.length;
+        const mid = state.mid;
+        if (!mid) return;
+
         if (action === 'pause') {
+          const ids = [...state.pf.sel];
           mut((d, s) => {
             if (!s.mid) return;
             d[s.mid].participants.forEach((p) => {
-              if (s.pf.sel.includes(p.id)) p.status = 'paused';
+              if (ids.includes(p.id)) p.status = 'paused';
             });
             return { pf: { ...s.pf, sel: [] } };
           });
-          toast(`Пауза включена у ${n} ${plural(n, 'участницы', 'участниц', 'участниц')}`);
+          void (async () => {
+            for (const id of ids) {
+              if (!(await call(() => api.setParticipantStatus(id, mid, 'paused'), { reload: mid }))) return;
+            }
+            toast(`Пауза включена у ${n} ${plural(n, 'участницы', 'участниц', 'участниц')}`);
+          })();
         }
         if (action === 'message') {
           set((s) => ({ screen: 'broadcasts', bc: { ...s.bc, seg: 'selected', selIds: [...s.pf.sel], stage: 'compose' } }));
         }
       },
 
-      setP: (id, k, v) =>
+      setP: (id, k, v) => {
+        const mid = state.mid;
         mut((d, s) => {
           if (!s.mid) return;
           const p = d[s.mid].participants.find((x) => x.id === id);
           if (p) (p as unknown as Record<string, unknown>)[k] = v;
-        }),
+        });
+        if (mid && k === 'status') {
+          void call(() => api.setParticipantStatus(id, mid, v as 'active' | 'paused' | 'left' | 'finished'), { reload: mid });
+        }
+      },
 
       adjustPoints: () => {
         const pm = state.pointsModal;
-        if (!pm) return;
+        const mid = state.mid;
+        if (!pm || !mid) return;
         const n = Number(pm.delta);
         if (!n) {
           set({ pointsModal: { ...pm, err: 'Укажите число, отличное от нуля' } });
@@ -383,20 +686,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           set({ pointsModal: { ...pm, err: 'Причина обязательна — она видна участнице и попадает в журнал' } });
           return;
         }
-        mut((d, s) => {
-          if (!s.mid) return;
-          const p = d[s.mid].participants.find((x) => x.id === pm.pid);
-          if (p) p.points += n;
-          const L = d[s.mid].ledger;
-          (L[pm.pid] = L[pm.pid] ?? []).unshift({ d: TODAY_LABEL, delta: n, reason: pm.reason.trim() });
-          return { pointsModal: null };
-        });
-        toast(`${n > 0 ? '+' : ''}${n} баллов начислено. Участница получит уведомление с причиной.`);
+        const reason = pm.reason.trim();
+        void (async () => {
+          try {
+            await api.adjustPoints(pm.pid, mid, n, reason);
+            mut((d, s) => {
+              if (!s.mid) return;
+              const p = d[s.mid].participants.find((x) => x.id === pm.pid);
+              if (p) p.points += n;
+              const L = d[s.mid].ledger;
+              (L[pm.pid] = L[pm.pid] ?? []).unshift({ d: localDate('Asia/Bishkek'), delta: n, reason });
+              return { pointsModal: null };
+            });
+            toast(`${n > 0 ? '+' : ''}${n} баллов начислено. Участница получит уведомление с причиной.`);
+          } catch (err) {
+            set((s) => ({ pointsModal: s.pointsModal ? { ...s.pointsModal, err: errorText(err) } : null }));
+          }
+        })();
       },
 
       removeP: (id) => {
         const p = currentData(state).participants.find((x) => x.id === id);
-        if (!p) return;
+        const mid = state.mid;
+        if (!p || !mid) return;
         confirmAction(
           `Удалить ${p.name} из марафона?`,
           `Она перестанет получать напоминания и не сможет сдавать отчёты. ${p.points} баллов и история сохранятся в архиве. Бот отправит ей сообщение об исключении.`,
@@ -409,7 +721,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               if (x) x.status = 'left';
               return { confirm: null, drawerId: null };
             });
-            toast(`${p.name} исключена из марафона`);
+            void (async () => {
+              if (await call(() => api.removeParticipant(id, mid), { reload: mid })) {
+                toast(`${p.name} исключена из марафона`);
+              }
+            })();
           },
         );
       },
@@ -423,49 +739,111 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const csv = '﻿' + rows.map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n');
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-        a.download = 'uchastnitsy-' + state.mid + '.csv';
+        a.download = 'uchastnitsy-' + (state.mid ?? 'marathon') + '.csv';
         a.click();
         URL.revokeObjectURL(a.href);
         toast(`CSV: ${rows.length - 1} строк`);
       },
 
+      /* ───────── рассылки ───────── */
+
       setBc: (k, v) => set((s) => ({ bc: { ...s.bc, [k]: v } })),
 
       /**
-       * Отправка идёт видимо долго: Telegram пропускает ~30 сообщений в секунду,
-       * поэтому мгновенного «Отправлено» здесь быть не может.
+       * Отправка идёт видимо долго: бот держит общий лимит 25 сообщений в
+       * секунду, поэтому прогресс настоящий — мы опрашиваем рассылку у бэкенда.
        */
       send: () => {
+        const mid = state.mid;
+        if (!mid) return;
         const segs = segments(state);
         const seg = segs.find((x) => x.id === state.bc.seg) ?? segs[0];
         if (!seg) return;
-        const n = seg.list.length;
-        set((s) => ({ bc: { ...s.bc, stage: 'sending', sent: 0, total: n } }));
 
-        window.clearInterval(sendTimer.current);
-        sendTimer.current = window.setInterval(() => {
-          setState((s) => {
-            const sent = Math.min(n, s.bc.sent + Math.max(1, Math.ceil(n / 8)));
-            if (sent < n) return { ...s, bc: { ...s.bc, sent } };
+        const text = state.bc.text;
+        const segment = toSegmentDto(state.bc.seg, state.bc.selIds);
+        const schedule = state.bc.when === 'now' ? { kind: 'now' } : { kind: 'tomorrow', at: '09:00' };
 
-            window.clearInterval(sendTimer.current);
-            const blockedList = seg.list.filter((p) => p.blocked);
-            const result = {
-              count: n,
-              delivered: n - blockedList.length,
-              blocked: blockedList.length,
-              blockedNames: blockedList.map((p) => p.name).join(', '),
-            };
-            const d = clone(s.data);
-            if (s.mid) {
-              d[s.mid].broadcasts.unshift({
-                id: uid(), at: 'сейчас', text: s.bc.text, seg: seg.name,
-                count: n, delivered: result.delivered, blocked: result.blocked,
-              });
+        set((s) => ({ bc: { ...s.bc, stage: 'sending', sent: 0, total: seg.list.length } }));
+
+        void (async () => {
+          try {
+            const { id, count } = await api.createBroadcast(mid, { text, segment, schedule });
+            set((s) => ({ bc: { ...s.bc, total: count } }));
+
+            // «Завтра 09:00» уйдёт без нас: показываем, что рассылка поставлена.
+            if (state.bc.when !== 'now') {
+              await reloadMarathon(mid);
+              set((s) => ({
+                ...s,
+                bc: { ...s.bc, stage: 'done', sent: count, result: { count, delivered: 0, blocked: 0, blockedNames: '' } },
+              }));
+              toast(`Рассылка поставлена на завтра 09:00 — ${count} ${plural(count, 'получатель', 'получателя', 'получателей')}`);
+              return;
             }
-            return { ...s, data: d, bc: { ...s.bc, stage: 'done', sent: n, result } };
-          });
-        }, 450);
+
+            window.clearInterval(pollTimer.current);
+            pollTimer.current = window.setInterval(() => {
+              void (async () => {
+                try {
+                  const p = await api.broadcastProgress(id);
+                  const blocked = (p.totals.blocked ?? 0) + (p.totals.failed ?? 0);
+                  const handled = (p.totals.sent ?? 0) + blocked;
+
+                  if (p.status === 'done' || (p.totals.pending ?? 0) === 0) {
+                    window.clearInterval(pollTimer.current);
+                    await reloadMarathon(mid);
+                    setState((s) => {
+                      const names = (s.data[mid]?.participants ?? [])
+                        .filter((x) => x.blocked && seg.list.some((y) => y.id === x.id))
+                        .map((x) => x.name)
+                        .join(', ');
+                      return {
+                        ...s,
+                        bc: {
+                          ...s.bc,
+                          stage: 'done',
+                          sent: count,
+                          result: { count, delivered: p.totals.sent ?? 0, blocked, blockedNames: names },
+                        },
+                      };
+                    });
+                  } else {
+                    setState((s) => ({ ...s, bc: { ...s.bc, sent: handled } }));
+                  }
+                } catch (err) {
+                  window.clearInterval(pollTimer.current);
+                  toast(errorText(err));
+                  setState((s) => ({ ...s, bc: { ...s.bc, stage: 'compose' } }));
+                }
+              })();
+            }, 1500);
+          } catch (err) {
+            toast(errorText(err));
+            set((s) => ({ bc: { ...s.bc, stage: 'compose' } }));
+          }
+        })();
+      },
+
+      /* ───────── бот и пользователи ───────── */
+
+      setBot: (patch) => {
+        set((s) => ({ bot: { ...s.bot, ...patch } }));
+
+        const body: Record<string, unknown> = {};
+        if (patch.quietFrom !== undefined) body.quietFrom = patch.quietFrom;
+        if (patch.quietTo !== undefined) body.quietTo = patch.quietTo;
+        if (patch.capPerDay !== undefined) body.capPerDay = patch.capPerDay;
+        if (patch.menu !== undefined) body.menu = patch.menu;
+        if (patch.desc !== undefined) body.description = patch.desc;
+        if (patch.shortDesc !== undefined) body.shortDescription = patch.shortDesc;
+        if (patch.commands !== undefined) {
+          // Команды хранятся парами, а правятся одним текстовым полем.
+          body.commands = parseCommands(patch.commands);
+        }
+        if (Object.keys(body).length === 0) return;
+
+        later('bot:settings', () => void call(() => api.patchBotSettings(body), { reload: 'global' }));
       },
 
       saveBotName: () => {
@@ -477,8 +855,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Изменить имя',
           false,
           () => {
-            set((s) => ({ bot: { ...s.bot, name: draft }, botDraft: null, confirm: null }));
-            toast('Имя бота обновлено через Bot API');
+            set({ confirm: null });
+            void (async () => {
+              if (await call(() => api.setBotName(draft))) {
+                set((s) => ({ bot: { ...s.bot, name: draft }, botDraft: null }));
+                toast('Имя бота обновлено через Bot API');
+              }
+            })();
           },
         );
       },
@@ -486,20 +869,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setRole: (id, role) => {
         const u = state.users.find((x) => x.id === id);
         if (!u || u.role === role) return;
-        const admins = state.users.filter((x) => x.role === 'admin').length;
-        if (id === meId(state)) {
-          toast('Свою роль поменять нельзя — попросите другого админа');
-          return;
-        }
-        if (u.role === 'admin' && admins <= 1) {
-          toast('В панели должен остаться хотя бы один админ');
-          return;
-        }
-        set((s) => ({
-          users: s.users.map((x) => (x.id === id ? { ...x, role } : x)),
-          audit: logAudit(s, `Изменила роль: ${u.name} — теперь ${role === 'admin' ? 'админ' : 'куратор'}`),
-        }));
-        toast(role === 'admin' ? `${u.name} теперь админ — видит и «Пользователей»` : `${u.name} теперь куратор — всё, кроме «Пользователей»`);
+        void (async () => {
+          try {
+            await api.setUserRole(id, role);
+            await reloadGlobal();
+            toast(role === 'admin' ? `${u.name} теперь админ — видит и «Пользователей»` : `${u.name} теперь куратор — всё, кроме «Пользователей»`);
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
       },
 
       removeUser: (id) => {
@@ -511,8 +889,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Отключить',
           true,
           () => {
-            set((s) => ({ users: s.users.filter((x) => x.id !== id), confirm: null, audit: logAudit(s, `Отключила доступ: ${u.name}`) }));
-            toast(`Доступ ${u.name} отключён`);
+            set({ confirm: null });
+            void (async () => {
+              try {
+                await api.disableUser(id);
+                await reloadGlobal();
+                toast(`Доступ ${u.name} отключён`);
+              } catch (err) {
+                toast(errorText(err));
+              }
+            })();
           },
         );
       },
@@ -529,15 +915,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (tg[0] !== '@') tg = '@' + tg;
         if (state.users.some((u) => u.tg.toLowerCase() === tg.toLowerCase())) return bad(tg + ' уже есть в списке');
 
-        set((s) => ({
-          users: [...s.users, { id: uid(), name, tg, role: iv.role, last: '', invited: true }],
-          invite: null,
-          audit: logAudit(s, `Добавила ${name} (${tg}) как ${iv.role === 'admin' ? 'админа' : 'куратора'}`),
-        }));
-        toast(`${name} добавлена. Пусть войдёт в панель через Telegram — доступ откроется сразу.`);
+        void (async () => {
+          try {
+            await api.addUser({ name, tgUsername: tg.slice(1), role: iv.role });
+            await reloadGlobal();
+            set({ invite: null });
+            toast(`${name} добавлена. Пусть войдёт в панель через Telegram — доступ откроется сразу.`);
+          } catch (err) {
+            bad(errorText(err));
+          }
+        })();
       },
     };
-  }, [state, set, toast]);
+  }, [state, set, toast, bootstrap, reloadGlobal, reloadMarathon]);
 
   return (
     <StateCtx.Provider value={state}>

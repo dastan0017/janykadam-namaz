@@ -1,6 +1,6 @@
-import { DAY_N, MARATHON_DAYS, NOW } from '../data/constants';
+import { FALLBACK_TZ } from '../data/constants';
 import { activeTopics, currentData, currentMarathon, issueSummary, stats, validate } from '../lib/derive';
-import { fmt, win, winStr } from '../lib/time';
+import { dayCount, dayNumber, fmt, localNow, win, winStr } from '../lib/time';
 import { useActions, useAppState } from '../store/context';
 import type { AppState } from '../types';
 
@@ -46,7 +46,7 @@ export function Overview() {
             {st.pct}%
           </span>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {st.done} из {st.active} активных · день {DAY_N} из {MARATHON_DAYS}
+            {st.done} из {st.active} активных{m ? ` · день ${dayNumber(m.start)} из ${dayCount(m.start, m.end)}` : ''}
           </span>
         </button>
 
@@ -130,12 +130,12 @@ export function Overview() {
             Сегодня по темам
           </div>
           <div className="hint" style={{ marginBottom: 12 }}>
-            Окна показаны по Бишкеку, сейчас {fmt(NOW)}. Намазы у каждой участницы — по её часовому поясу.
+            Окна показаны по Бишкеку, сейчас {fmt(localNow(FALLBACK_TZ))}. Намазы у каждой участницы — по её часовому поясу.
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {activeTopics(s).map((t) => {
               const n = act.filter((p) => p.today.includes(t.id)).length;
-              const closed = win(t).e <= NOW;
+              const closed = win(t).e <= localNow(FALLBACK_TZ);
               return (
                 <button
                   key={t.id}
