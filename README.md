@@ -11,6 +11,7 @@
 | --- | --- |
 | [`admin-panel/`](admin-panel/) | Админ-панель: React + TypeScript + Vite. |
 | [`telegram-bot/`](telegram-bot/) | Бот и бэкенд панели: NestJS, PostgreSQL, Drizzle, pg-boss. |
+| [`deploy/`](deploy/) | Прод-стенд: Caddy, панель и API на одном домене. |
 
 Панель спроектирована раньше бота намеренно: всё, что в ней настраивается, —
 это и есть спецификация бота.

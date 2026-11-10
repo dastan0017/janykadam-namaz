@@ -1,0 +1,49 @@
+# Панель и API на одном origin.
+#
+# Так сделано не для красоты: кука сессии `jk_admin` ставится с SameSite=Lax,
+# а бесплатные поддомены вроде duckdns.org лежат в Public Suffix List — значит
+# panel.duckdns.org и api.duckdns.org для браузера разные сайты, и кука между
+# ними не ходит. Один хост снимает и этот вопрос, и CORS целиком.
+#
+# Сертификат Caddy получает сам: нужны открытые 80 и 443 и домен, указывающий
+# на этот сервер.
+
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# Бэкенд: админ-API, вебхук Telegram и проверка живости.
+	handle /api/* {
+		reverse_proxy app:3000
+	}
+	handle /telegram/* {
+		reverse_proxy app:3000
+	}
+	handle /healthz {
+		reverse_proxy app:3000
+	}
+
+	# Всё остальное — статика панели. Маршруты у неё клиентские,
+	# поэтому неизвестные пути отдают index.html, а не 404.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+
+		# Собранные файлы имеют хеш в имени — их можно кешировать надолго.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		header Cache-Control "no-cache"
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -32,15 +32,22 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  const doc = SwaggerModule.createDocument(
-    app,
-    new DocumentBuilder()
-      .setTitle('Janykadam — админ-API')
-      .setDescription('Бэкенд панели марафонов. Вход через Telegram Login, сессия в httpOnly-куке.')
-      .setVersion('0.1.0')
-      .build(),
-  );
-  SwaggerModule.setup('api/docs', app, doc);
+  // /api/docs открыт без входа, поэтому в проде его по умолчанию нет:
+  // иначе наружу уходит полный список ручек админки. ENABLE_DOCS=true включает.
+  const withDocs = cfg.ENABLE_DOCS ?? cfg.NODE_ENV !== 'production';
+  if (withDocs) {
+    const doc = SwaggerModule.createDocument(
+      app,
+      new DocumentBuilder()
+        .setTitle('Janykadam — админ-API')
+        .setDescription('Бэкенд панели марафонов. Вход через Telegram Login, сессия в httpOnly-куке.')
+        .setVersion('0.1.0')
+        .build(),
+    );
+    SwaggerModule.setup('api/docs', app, doc);
+  } else {
+    log.log('Swagger выключен: ENABLE_DOCS=true включит его обратно');
+  }
 
   const bot = app.get(BotService);
 

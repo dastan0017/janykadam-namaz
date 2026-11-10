@@ -34,6 +34,15 @@ const schema = z.object({
    */
   MAX_MSG_PER_SECOND: z.coerce.number().int().positive().default(25),
 
+  /**
+   * Показывать ли Swagger на /api/docs. В проде по умолчанию выключен: он
+   * открыт без входа и выкладывает наружу всю поверхность админ-API.
+   */
+  ENABLE_DOCS: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
