@@ -226,11 +226,18 @@ docker compose exec app node dist/db/seed.js
 
 `pnpm` в финальном образе нет — только `node` и собранный `dist`.
 
-Порт базы наружу публикуется только для отладки, и 5433 на машине разработчика
-может быть занят. Тогда:
+Оба порта наружу настраиваются: 3000 и 5433 часто заняты другим проектом, тем
+более что у контейнеров бывает `restart: unless-stopped` и они поднимаются
+вместе с Docker.
 
 ```bash
-DB_PORT=5434 docker compose up -d
+APP_PORT=3100 DB_PORT=5434 docker compose up -d
+```
+
+Проверить, кто занял порт:
+
+```bash
+docker ps --format '{{.Names}} {{.Ports}}'
 ```
 
 В проде поставьте `BOT_MODE=webhook`, `PUBLIC_URL` и `WEBHOOK_SECRET` — бот сам

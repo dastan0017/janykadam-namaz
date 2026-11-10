@@ -32,7 +32,8 @@ services:
       - path: .env
         required: false
     ports:
-      - '3000:3000'
+      # Порт наружу тоже настраивается: 3000 часто занят другим проектом.
+      - '${APP_PORT:-3000}:3000'
     restart: unless-stopped
 
 volumes:
