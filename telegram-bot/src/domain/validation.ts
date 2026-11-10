@@ -1,5 +1,5 @@
 import type { NamazId } from './namaz';
-import { parseHHMM, type WindowInstance } from './windows';
+import { parseHHMM } from './windows';
 
 /**
  * Проверка конфигурации марафона. Одни и те же правила использует и API,
@@ -46,10 +46,8 @@ export interface MarathonInput {
 }
 
 export interface ValidationContext {
-  /** Сегодняшняя дата по Бишкеку — эталон для проверки дат и пересечений. */
+  /** Сегодняшняя дата по Бишкеку — эталон для проверки дат. */
   today: string;
-  /** Окна обязательных тем на сегодня в эталонном месте. */
-  mandatoryWindows: WindowInstance[];
   /** Непереведённые ключи текстов бота. */
   untranslatedTextKeys: string[];
 }
@@ -108,21 +106,8 @@ export function validateMarathon(m: MarathonInput, ctx: ValidationContext): Issu
     }
   }
 
-  // Пересечение обязательных окон: непонятно, к чему относится отчёт.
-  const man = ctx.mandatoryWindows;
-  for (let i = 0; i < man.length; i++) {
-    for (let j = i + 1; j < man.length; j++) {
-      const a = man[i];
-      const b = man[j];
-      if (a.opensAt < b.closesAt && b.opensAt < a.closesAt) {
-        err(
-          'mandatory_overlap',
-          `Обязательные окна пересекаются сегодня: «${a.nameKg}» и «${b.nameKg}»`,
-          { kind: 'marathon' },
-        );
-      }
-    }
-  }
+  // Пересечение окон — не ошибка: «Зикир» на весь день идёт поверх намазов,
+  // а отчёт участница сдаёт по каждой теме отдельно, кнопкой с её id.
 
   if (m.status === 'draft' && m.startDate < ctx.today) {
     err('start_in_past', `Дата начала ${m.startDate} уже прошла`, { kind: 'marathon' });

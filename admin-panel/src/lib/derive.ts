@@ -1,7 +1,7 @@
 import { FALLBACK_TZ, NAMAZ, TZ, TZ_ORDER } from '../data/constants';
 import type { AnyTopic, AppState, Marathon, MarathonData, Participant, Segment, Topic, ValidationIssue } from '../types';
 import { plural } from './format';
-import { localDate, nsTopic, toMin, win, winStr } from './time';
+import { localDate, nsTopic, toMin } from './time';
 
 /** Вошла сегодня — по её местной дате, а не по дате сервера. */
 export function isNewToday(p: Participant): boolean {
@@ -108,17 +108,8 @@ export function validate(s: AppState): ValidationIssue[] {
     });
   });
 
-  // Обязательные окна не должны пересекаться: иначе непонятно, к чему относится отчёт.
-  const man = allTopics(s).filter((t) => t.active && t.mandatory);
-  for (let i = 0; i < man.length; i++) {
-    for (let j = i + 1; j < man.length; j++) {
-      const a = win(man[i]);
-      const b = win(man[j]);
-      if (a.s < b.e && b.s < a.e) {
-        E(`Обязательные окна пересекаются сегодня (Бишкек): «${man[i].nameKg}» ${winStr(man[i])} и «${man[j].nameKg}» ${winStr(man[j])}`, 'topics');
-      }
-    }
-  }
+  // Пересечение окон — не ошибка: «Зикир» на весь день идёт поверх намазов,
+  // а отчёт участница сдаёт по каждой теме отдельно, кнопкой с её id.
 
   if (m) {
     if (m.status === 'draft' && m.start < localDate(FALLBACK_TZ)) E(`Дата начала ${m.start} уже прошла`, 'settings');

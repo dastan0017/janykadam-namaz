@@ -4,19 +4,17 @@ import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { botTexts, marathons, questionOptions, questions, topics } from '../db/schema';
 import type { NamazId } from '../domain/namaz';
 import { validateMarathon, type Issue, type TopicInput } from '../domain/validation';
-import { localDateShift, toLocalDate, windowsForDay } from '../domain/windows';
-import { PrayerService } from './prayer.service';
+import { toLocalDate } from '../domain/windows';
 import { TopicsService } from './topics.service';
 
-/** Эталонное место для проверки пересечений — Бишкек. */
-const REFERENCE = { lat: 42.87, lng: 74.59, tz: 'Asia/Bishkek' };
+/** Эталонный пояс для проверки дат — Бишкек. */
+const REFERENCE_TZ = 'Asia/Bishkek';
 
 @Injectable()
 export class ValidationService {
   constructor(
     @Inject(DRIZZLE) private readonly db: Db,
     private readonly topicsSvc: TopicsService,
-    private readonly prayer: PrayerService,
   ) {}
 
   async validate(marathonId: string): Promise<Issue[]> {
@@ -24,12 +22,7 @@ export class ValidationService {
     if (!marathon) return [];
 
     const enabled = await this.topicsSvc.enabledFor(marathonId);
-    const today = toLocalDate(new Date(), REFERENCE.tz);
-
-    const lookup = await this.prayer.lookupFor(REFERENCE.lat, REFERENCE.lng, [
-      localDateShift(today, -1), today, localDateShift(today, 1),
-    ]);
-    const mandatoryWindows = windowsForDay(enabled, today, REFERENCE.tz, lookup).filter((w) => w.mandatory);
+    const today = toLocalDate(new Date(), REFERENCE_TZ);
 
     // Все темы марафона, включая выключенные: правила смотрят только активные.
     const topicRows = await this.db
@@ -77,7 +70,7 @@ export class ValidationService {
         namaz: enabled.namaz as NamazId[],
         topics: topicInputs,
       },
-      { today, mandatoryWindows, untranslatedTextKeys },
+      { today, untranslatedTextKeys },
     );
   }
 }
