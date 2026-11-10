@@ -9,6 +9,7 @@ import { ParticipantsService } from '../../services/participants.service';
 import { PrayerService } from '../../services/prayer.service';
 import { ReportsService } from '../../services/reports.service';
 import { SettingsService } from '../../services/settings.service';
+import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import {
   changeLocationKeyboard, languageKeyboard, locationKeyboard, mainKeyboard,
@@ -171,7 +172,8 @@ export class RegistrationFlow {
   }
 
   private async onSearchPick(ctx: Ctx): Promise<void> {
-    const id = ctx.callbackQuery?.data?.split(':')[1];
+    const raw = ctx.callbackQuery?.data?.split(':')[1];
+    const id = raw === undefined ? undefined : unpackId(raw);
     await ctx.answerCallbackQuery();
 
     if (id === 'none') {

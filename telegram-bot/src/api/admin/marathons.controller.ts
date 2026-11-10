@@ -188,8 +188,18 @@ export class MarathonsController {
     }
 
     await this.db.transaction(async (tx) => {
+      // Панель шлёт весь список целиком, и два быстрых щелчка дают два запроса
+      // подряд: без блокировки марафона они удаляют и вставляют одни и те же
+      // строки наперегонки и ловят duplicate key. Замок выстраивает их в
+      // очередь.
+      await tx.execute(sql`select 1 from ${marathons} where ${marathons.id} = ${id} for update`);
       await tx.delete(marathonNamaz).where(eq(marathonNamaz.marathonId, id));
-      if (ids.length) await tx.insert(marathonNamaz).values(ids.map((namazId) => ({ marathonId: id, namazId })));
+      if (ids.length) {
+        await tx
+          .insert(marathonNamaz)
+          .values(ids.map((namazId) => ({ marathonId: id, namazId })))
+          .onConflictDoNothing();
+      }
     });
 
     await this.auth.audit(req.admin ?? null, 'set_namaz', 'marathon', id, { ids });

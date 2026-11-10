@@ -1,12 +1,13 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { run, type RunnerHandle } from '@grammyjs/runner';
-import { Bot, GrammyError, HttpError, session } from 'grammy';
+import { Bot, BotError, GrammyError, HttpError, session } from 'grammy';
 import { env } from '../config/env';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { splitMessage } from '../domain/text';
 import { ParticipantsService } from '../services/participants.service';
 import { SettingsService } from '../services/settings.service';
+import type { Update } from 'grammy/types';
 import type { Ctx } from './context';
 import { isPrivate } from './context';
 import { CommandsFlow } from './flows/commands.flow';
@@ -71,12 +72,43 @@ export class BotService implements OnModuleDestroy {
       (ctx) => this.sayVideoOnly(ctx),
     );
 
-    this.bot.catch((err) => {
-      const e = err.error;
-      if (e instanceof GrammyError) this.log.error(`Telegram: ${e.description}`);
-      else if (e instanceof HttpError) this.log.error(`Сеть: ${e.message}`);
-      else this.log.error(`Необработанная ошибка: ${String(e)}`);
-    });
+    this.bot.catch((err) => this.onError(err));
+  }
+
+  /**
+   * Приём апдейта из вебхука.
+   *
+   * Обработчик `bot.catch` grammY ставит только поллинг, а `handleUpdate`
+   * пробрасывает ошибку наружу — и до правки она долетала до Nest, который
+   * печатал в лог весь объект ошибки вместе с токеном бота, а участница не
+   * получала ничего. Поэтому вебхук ходит сюда, а не в `handleUpdate` напрямую.
+   */
+  async handleUpdate(update: Update): Promise<void> {
+    try {
+      await this.bot.handleUpdate(update);
+    } catch (err) {
+      await this.onError(err);
+    }
+  }
+
+  /** Общая обработка ошибок для поллинга и вебхука. */
+  private async onError(err: unknown): Promise<void> {
+    const e = err instanceof BotError ? err.error : err;
+    const ctx = err instanceof BotError ? (err.ctx as Ctx) : undefined;
+
+    // В лог — только описание: объект ошибки grammY несёт в себе токен бота.
+    if (e instanceof GrammyError) this.log.error(`Telegram: ${e.description} (${e.method})`);
+    else if (e instanceof HttpError) this.log.error(`Сеть: ${e.message}`);
+    else if (e instanceof Error) this.log.error(`Необработанная ошибка: ${e.message}`, e.stack);
+    else this.log.error(`Необработанная ошибка: ${String(e)}`);
+
+    // Молчание участница читает как «бот сломался насовсем».
+    if (!ctx?.chat || ctx.chat.type !== 'private' || typeof ctx.t !== 'function') return;
+    try {
+      await ctx.reply(await ctx.t('something_went_wrong'));
+    } catch {
+      // Не вышло извиниться — в логе уже всё есть.
+    }
   }
 
   /** Подкладывает участницу и язык, чтобы обработчики не ходили в базу сами. */

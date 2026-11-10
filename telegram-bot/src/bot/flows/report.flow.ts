@@ -8,6 +8,7 @@ import type { WindowInstance } from '../../domain/windows';
 import { ParticipantsService, type ActiveContext } from '../../services/participants.service';
 import { ReportsService, type Draft } from '../../services/reports.service';
 import { TopicsService, type QuestionDef } from '../../services/topics.service';
+import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import {
   autoAssignedKeyboard, confirmKeyboard, optionsKeyboard, resumeKeyboard, topicPickerKeyboard,
@@ -146,7 +147,8 @@ export class ReportFlow {
   /* ───────── выбор темы ───────── */
 
   private async onPickerPage(ctx: Ctx): Promise<void> {
-    const [, draftId, pageStr] = ctx.callbackQuery!.data!.split(':');
+    const [, packed, pageStr] = ctx.callbackQuery!.data!.split(':');
+    const draftId = unpackId(packed);
     await ctx.answerCallbackQuery();
 
     const draft = await this.reports.findDraft(draftId);
@@ -160,7 +162,7 @@ export class ReportFlow {
   }
 
   private async onChangeTopic(ctx: Ctx): Promise<void> {
-    const draftId = ctx.callbackQuery!.data!.split(':')[1];
+    const draftId = unpackId(ctx.callbackQuery!.data!.split(':')[1]);
     await ctx.answerCallbackQuery();
 
     const draft = await this.reports.findDraft(draftId);
@@ -180,8 +182,8 @@ export class ReportFlow {
   private async onPickTopic(ctx: Ctx): Promise<void> {
     const data = ctx.callbackQuery!.data!;
     const idx = data.indexOf(':', 3);
-    const draftId = data.slice(3, idx);
-    const topicId = data.slice(idx + 1);
+    const draftId = unpackId(data.slice(3, idx));
+    const topicId = unpackId(data.slice(idx + 1));
     await ctx.answerCallbackQuery();
 
     const draft = await this.reports.findDraft(draftId);
@@ -309,8 +311,8 @@ export class ReportFlow {
   private async onAnswerOption(ctx: Ctx): Promise<void> {
     const data = ctx.callbackQuery!.data!;
     const idx = data.indexOf(':', 4);
-    const draftId = data.slice(4, idx);
-    const optionId = data.slice(idx + 1);
+    const draftId = unpackId(data.slice(4, idx));
+    const optionId = unpackId(data.slice(idx + 1));
     await ctx.answerCallbackQuery();
 
     const draft = await this.reports.findDraft(draftId);
@@ -345,7 +347,7 @@ export class ReportFlow {
   }
 
   private async onAnswerDone(ctx: Ctx): Promise<void> {
-    const draftId = ctx.callbackQuery!.data!.split(':')[1];
+    const draftId = unpackId(ctx.callbackQuery!.data!.split(':')[1]);
     await ctx.answerCallbackQuery();
     const draft = await this.reports.findDraft(draftId);
     const active = ctx.participant ? await this.participants.activeContext(ctx.participant) : null;
@@ -356,7 +358,7 @@ export class ReportFlow {
   }
 
   private async onAnswerSkip(ctx: Ctx): Promise<void> {
-    const draftId = ctx.callbackQuery!.data!.split(':')[1];
+    const draftId = unpackId(ctx.callbackQuery!.data!.split(':')[1]);
     await ctx.answerCallbackQuery();
     const draft = await this.reports.findDraft(draftId);
     const active = ctx.participant ? await this.participants.activeContext(ctx.participant) : null;

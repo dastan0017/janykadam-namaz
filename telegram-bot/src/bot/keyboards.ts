@@ -1,10 +1,22 @@
 import { InlineKeyboard, Keyboard } from 'grammy';
+import { cbData, packId } from './callback-data';
 import type { Lang } from '../domain/text';
 
 /**
  * Клавиатуры. Все надписи приходят из bot_texts, поэтому строители принимают
  * уже готовые строки — сервис текстов подставляет их заранее.
+ *
+ * Идентификаторы в кнопках пакуются (см. callback-data.ts): UUID не влезает в
+ * отведённые Telegram 64 байта.
  */
+
+/** `.row()` после последней кнопки оставляет пустой ряд — убираем. */
+function trim(kb: InlineKeyboard): InlineKeyboard {
+  while (kb.inline_keyboard.length > 0 && kb.inline_keyboard.at(-1)!.length === 0) {
+    kb.inline_keyboard.pop();
+  }
+  return kb;
+}
 
 /** Главная клавиатура: четыре кнопки, больше ничего. */
 export function mainKeyboard(labels: string[]): Keyboard {
@@ -47,7 +59,7 @@ export function searchResultsKeyboard(
   notFoundLabel: string,
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
-  for (const h of hits) kb.text(h.label, `geo:${h.id}`).row();
+  for (const h of hits) kb.text(h.label, cbData('geo', packId(h.id))).row();
   return kb.text(notFoundLabel, 'geo:none');
 }
 
@@ -66,14 +78,14 @@ export function topicPickerKeyboard(
   const kb = new InlineKeyboard();
   const start = page * pageSize;
   const slice = items.slice(start, start + pageSize);
+  const draft = packId(draftId);
 
   for (const it of slice) {
-    // callback_data ограничен 64 байтами, поэтому только короткие идентификаторы.
-    kb.text(it.label, `rp:${draftId}:${it.topicId}`).row();
+    kb.text(it.label, cbData('rp', draft, packId(it.topicId))).row();
   }
 
-  if (items.length > start + pageSize) kb.text(moreLabel, `rpp:${draftId}:${page + 1}`);
-  return kb;
+  if (items.length > start + pageSize) kb.text(moreLabel, cbData('rpp', draft, String(page + 1)));
+  return trim(kb);
 }
 
 export function confirmKeyboard(yes: string, no: string, prefix: string): InlineKeyboard {
@@ -81,7 +93,7 @@ export function confirmKeyboard(yes: string, no: string, prefix: string): Inline
 }
 
 export function autoAssignedKeyboard(draftId: string, changeLabel: string): InlineKeyboard {
-  return new InlineKeyboard().text(changeLabel, `rpc:${draftId}`);
+  return new InlineKeyboard().text(changeLabel, cbData('rpc', packId(draftId)));
 }
 
 /** Варианты ответа на вопрос. */
@@ -92,20 +104,22 @@ export function optionsKeyboard(
   extra: { multi?: boolean; doneLabel?: string; skipLabel?: string } = {},
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
+  const draft = packId(draftId);
+
   for (const o of options) {
     const label = extra.multi ? `${o.checked ? '✓ ' : ''}${o.label}` : o.label;
-    kb.text(label, `ans:${draftId}:${o.id}`).row();
+    kb.text(label, cbData('ans', draft, packId(o.id))).row();
   }
-  if (extra.multi && extra.doneLabel) kb.text(extra.doneLabel, `ansdone:${draftId}`).row();
-  if (extra.skipLabel) kb.text(extra.skipLabel, `ansskip:${draftId}`);
+  if (extra.multi && extra.doneLabel) kb.text(extra.doneLabel, cbData('ansdone', draft)).row();
+  if (extra.skipLabel) kb.text(extra.skipLabel, cbData('ansskip', draft));
   void questionId;
-  return kb;
+  return trim(kb);
 }
 
 export function marathonSwitchKeyboard(items: { enrollmentId: string; label: string }[]): InlineKeyboard {
   const kb = new InlineKeyboard();
-  for (const it of items) kb.text(it.label, `mar:${it.enrollmentId}`).row();
-  return kb;
+  for (const it of items) kb.text(it.label, cbData('mar', packId(it.enrollmentId))).row();
+  return trim(kb);
 }
 
 export function pauseLengthKeyboard(d3: string, week: string, untilCancel: string): InlineKeyboard {
@@ -122,7 +136,7 @@ export function notifyNextKeyboard(label: string): InlineKeyboard {
 
 /** Кнопка «Сдать для «марафон»» в напоминаниях, когда марафонов несколько. */
 export function submitForKeyboard(enrollmentId: string, label: string): InlineKeyboard {
-  return new InlineKeyboard().text(label, `sub:${enrollmentId}`);
+  return new InlineKeyboard().text(label, cbData('sub', packId(enrollmentId)));
 }
 
 export function langOf(lang: string): Lang {

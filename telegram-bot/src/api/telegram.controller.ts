@@ -43,7 +43,7 @@ export class TelegramController {
       return { ok: true };
     }
 
-    await this.bots.bot.handleUpdate(update);
+    await this.bots.handleUpdate(update);
     return { ok: true };
   }
 

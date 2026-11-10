@@ -9,6 +9,7 @@ import { joinTopics } from '../../domain/text';
 import { toLocalDate } from '../../domain/windows';
 import { ParticipantsService } from '../../services/participants.service';
 import { ReportsService } from '../../services/reports.service';
+import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import { marathonSwitchKeyboard, pauseLengthKeyboard } from '../keyboards';
 
@@ -133,14 +134,14 @@ export class CommandsFlow {
   }
 
   private async onSwitchMarathon(ctx: Ctx): Promise<void> {
-    const enrollmentId = ctx.callbackQuery!.data!.split(':')[1];
+    const enrollmentId = unpackId(ctx.callbackQuery!.data!.split(':')[1]);
     await ctx.answerCallbackQuery();
     await this.switchTo(ctx, enrollmentId);
   }
 
   /** Кнопка «Сдать для «марафон»» в напоминании переключает контекст. */
   private async onSubmitFor(ctx: Ctx): Promise<void> {
-    const enrollmentId = ctx.callbackQuery!.data!.split(':')[1];
+    const enrollmentId = unpackId(ctx.callbackQuery!.data!.split(':')[1]);
     await ctx.answerCallbackQuery();
     await this.switchTo(ctx, enrollmentId);
     await this.onOtchet(ctx);
