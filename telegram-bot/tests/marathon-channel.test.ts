@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
 import type { Update } from 'grammy/types';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { botChannels, enrollments, marathons, reports } from '../src/db/schema';
+import { botChannels, enrollments, marathons, participants, reports } from '../src/db/schema';
 import { classifyTmePage, linkMatchesChat, normalizeChannelLink, parseChannelLink, rightsOf } from '../src/domain/channel';
 import { validateMarathon, type MarathonInput } from '../src/domain/validation';
 import {
-  callbackUpdate, enrollmentOf, insertReport, makeHarness, makeParticipant, marathonIdByCode, registerInBishkek,
+  TEST_TG_USER_ID, callbackUpdate, enrollmentOf, insertReport, makeHarness, makeParticipant, marathonIdByCode, registerInBishkek,
   textUpdate, videoNoteUpdate, wipeParticipants, wipeTestParticipant, type Harness, type SentCall,
 } from './helpers/bot-harness';
 import { TME_CHANNEL, TME_GROUP, TME_MISSING } from './fixtures/tme-pages';
@@ -426,6 +426,59 @@ describe('отчёты в канале', () => {
     expect(calls('sendVideo')).toHaveLength(0);
     const [row] = await h.db.select().from(reports).where(eq(reports.enrollmentId, made.enrollmentId));
     expect(row.channelState).toBe('skipped');
+  });
+});
+
+/* ───────── подпись: город и день ───────── */
+
+describe('подпись под видео', () => {
+  it('до старта марафона день не пишется — никакого «-5-күн»', async () => {
+    await connectChannel();
+    const made = await participant();
+    // m5 стартует 21 октября; отчёт за 16-е — за пять дней до старта.
+    await insertReport(h.db, { enrollmentId: made.enrollmentId, topicId: 't3', dayKey: '2026-10-16' });
+    await h.db.update(reports).set({ channelState: 'pending' }).where(eq(reports.enrollmentId, made.enrollmentId));
+
+    telegram();
+    await h.channel.tick();
+
+    const caption = String(calls('sendVideo')[0].payload.caption);
+    expect(caption.split('\n').at(-1)).toBe('📍 Тестовое место');
+    expect(caption).not.toMatch(/күн|-\d/);
+  });
+
+  it('присланная геолокация превращается в город, а не в надпись кнопки', async () => {
+    vi.useFakeTimers({ now: AT_0940, toFake: ['Date'] });
+    await h.feed(textUpdate('/start m5', AT_0940));
+    await h.feed(callbackUpdate('lang:kg'));
+    const user = { id: Number(TEST_TG_USER_ID), is_bot: false, first_name: 'Айсулуу' };
+    await h.feed({
+      message: {
+        message_id: 77,
+        date: Math.floor(AT_0940.getTime() / 1000),
+        chat: { id: user.id, type: 'private', first_name: 'Айсулуу' },
+        from: user,
+        location: { latitude: 42.8746, longitude: 74.5698 },
+      },
+    } as unknown as Partial<Update>);
+
+    const [p] = await h.db.select().from(participants).where(eq(participants.tgUserId, TEST_TG_USER_ID));
+    expect(p.locationSource).toBe('geo');
+    expect(p.placeLabel).toBe('Бишкек');
+    expect(h.texts().join('\n')).not.toMatch(/Геолокация жөнөтүү|Отправить геолокацию/);
+  });
+
+  it('у кого раньше сохранилась надпись кнопки — при старте бота ставится город', async () => {
+    const made = await participant();
+    await h.db
+      .update(participants)
+      .set({ locationSource: 'geo', placeLabel: '📍 Отправить геолокацию' })
+      .where(eq(participants.id, made.participantId));
+
+    expect(await h.location.healGeoLabels()).toBeGreaterThanOrEqual(1);
+
+    const [p] = await h.db.select().from(participants).where(eq(participants.id, made.participantId));
+    expect(p.placeLabel).toBe('Бишкек');
   });
 });
 

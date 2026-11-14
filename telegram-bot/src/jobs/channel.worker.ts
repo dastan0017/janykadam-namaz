@@ -181,14 +181,36 @@ export class ChannelWorker implements OnModuleInit {
 
   /** Подпись на языке марафона: канал у всех участниц один. */
   async caption(p: PendingPost): Promise<string> {
+    const day = marathonDayNumber(p.startDate, p.dayKey);
     const text = await this.settings.t('channel_report_caption', p.lang, {
       тема: await this.channels.topicLabel(p.topicKind, p.topicId, p.lang),
       имя: [p.firstName, p.lastName].map((x) => x.trim()).filter(Boolean).join(' ') || '—',
       город: p.placeLabel?.trim() || '—',
-      день: marathonDayNumber(p.startDate, p.dayKey),
+      // До старта отчёт принимается, но «-5-күн» — бессмыслица: день убираем.
+      день: day >= 1 ? day : NO_DAY,
     });
-    return text.slice(0, CAPTION_LIMIT);
+    return dropSegment(text, NO_DAY).slice(0, CAPTION_LIMIT);
   }
+}
+
+/** Метка «дня нет»: участок подписи с ней вырезается целиком. */
+const NO_DAY = '\u2063NO_DAY\u2063';
+
+/**
+ * Убирает из подписи кусок с меткой: часть строки между «·», а если
+ * разделителя нет — строку целиком. Подпись правится в панели, поэтому
+ * вырезаем по разметке текста, а не по заранее известной фразе.
+ */
+export function dropSegment(text: string, mark: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      if (!line.includes(mark)) return line;
+      const kept = line.split('·').filter((part) => !part.includes(mark));
+      return kept.map((p) => p.trim()).filter(Boolean).join(' · ');
+    })
+    .filter((line) => line.trim() !== '')
+    .join('\n');
 }
 
 /** Ошибка канала целиком: бота убрали, отобрали права, канал удалён. */

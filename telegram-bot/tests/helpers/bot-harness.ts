@@ -14,6 +14,7 @@ import { ChannelWorker } from '../../src/jobs/channel.worker';
 import { JobsModule } from '../../src/jobs/jobs.module';
 import { PlannerService } from '../../src/jobs/planner.service';
 import { BroadcastService } from '../../src/services/broadcast.service';
+import { LocationService } from '../../src/services/location.service';
 import { NotifyService } from '../../src/services/notify.service';
 import { SettingsService } from '../../src/services/settings.service';
 import { WorkersService } from '../../src/jobs/workers.service';
@@ -59,6 +60,7 @@ export interface Harness {
   broadcasts: BroadcastWorker;
   /** Канал марафона: приглашения, исключённые и публикация отчётов. */
   channel: ChannelWorker;
+  location: LocationService;
   broadcastSvc: BroadcastService;
   notify: NotifyService;
   /** Настройки бота — тестам, которым нужен, например, свой лимит напоминаний. */
@@ -164,6 +166,7 @@ export async function makeHarness(): Promise<Harness> {
     planner: moduleRef.get(PlannerService),
     broadcasts: moduleRef.get(BroadcastWorker),
     channel: moduleRef.get(ChannelWorker),
+    location: moduleRef.get(LocationService),
     broadcastSvc: moduleRef.get(BroadcastService),
     notify: moduleRef.get(NotifyService),
     settings: moduleRef.get(SettingsService),

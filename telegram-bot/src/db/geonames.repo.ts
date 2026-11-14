@@ -90,3 +90,55 @@ export async function searchCities(db: NodePgDatabase<Record<string, unknown>>, 
     similarity: Number(r.similarity),
   }));
 }
+
+/** Крупный город ближе этого — показываем его, а не соседнее село. */
+const BIG_CITY_RADIUS_KM = 15;
+
+/**
+ * Город по координатам — для присланной геолокации.
+ *
+ * Берём точки GeoNames в небольшом квадрате вокруг: если в 15 км есть город,
+ * побеждает самый населённый (окраина Бишкека — это Бишкек, а не посёлок
+ * рядом); иначе — ближайший населённый пункт. Ничего рядом нет — null.
+ */
+export async function nearestCity(db: NodePgDatabase<Record<string, unknown>>, lat: number, lng: number): Promise<GeoHit | null> {
+  const rows = await db.execute<GeoRow & { km: string | number }>(sql`
+    SELECT geonameid, name, alternatenames, lat, lng,
+           country_code AS "countryCode", timezone, population, 0 AS similarity,
+           111.2 * sqrt(power(lat - ${lat}, 2) + power((lng - ${lng}) * cos(radians(${lat})), 2)) AS km
+    FROM geonames
+    WHERE lat BETWEEN ${lat - 0.6} AND ${lat + 0.6}
+      AND lng BETWEEN ${lng - 0.9} AND ${lng + 0.9}
+    ORDER BY km
+    LIMIT 40
+  `);
+
+  const list = (Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] }).rows ?? [])) as (GeoRow & { km: string | number })[];
+  const hits = list.map((r) => ({
+    geonameid: Number(r.geonameid),
+    name: r.name,
+    alternatenames: r.alternatenames,
+    lat: Number(r.lat),
+    lng: Number(r.lng),
+    countryCode: r.countryCode,
+    timezone: r.timezone,
+    population: Number(r.population),
+    similarity: 0,
+    km: Number(r.km),
+  }));
+  if (hits.length === 0) return null;
+
+  const near = hits.filter((h) => h.km <= BIG_CITY_RADIUS_KM);
+  const best = near.length ? near.reduce((a, b) => (b.population > a.population ? b : a)) : hits[0];
+  return {
+    geonameid: best.geonameid,
+    name: best.name,
+    alternatenames: best.alternatenames,
+    lat: best.lat,
+    lng: best.lng,
+    countryCode: best.countryCode,
+    timezone: best.timezone,
+    population: best.population,
+    similarity: 0,
+  };
+}

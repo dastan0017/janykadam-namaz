@@ -227,11 +227,11 @@ export class RegistrationFlow {
   private async onLocationMessage(ctx: Ctx): Promise<void> {
     const loc = ctx.message?.location;
     if (!loc || !ctx.participant) return;
-    await this.applyLocation(ctx, this.location.fromCoords(loc.latitude, loc.longitude, await ctx.t('btn_send_location')));
+    await this.applyLocation(ctx, await this.location.fromCoords(loc.latitude, loc.longitude));
   }
 
   /** Сохраняет место, показывает подтверждение с намазами и продолжает регистрацию. */
-  private async applyLocation(ctx: Ctx, location: ReturnType<LocationService['fromCoords']>): Promise<void> {
+  private async applyLocation(ctx: Ctx, location: Location): Promise<void> {
     if (!ctx.participant) return;
 
     await this.participants.setLocation(ctx.participant.id, location);
