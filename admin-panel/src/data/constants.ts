@@ -128,6 +128,7 @@ export const ICONS: Record<string, string> = {
   journal: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  channel: 'M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16M5 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
 };
 
 /** Экраны вне контекста марафона — при переключении марафона с них не уводит. */
@@ -144,6 +145,7 @@ export const GROUP: Record<Screen, 'all' | 'm' | 'bot' | 'sys'> = {
   broadcasts: 'm',
   analytics: 'm',
   settings: 'm',
+  channel: 'm',
   namaz: 'bot',
   texts: 'bot',
   bot: 'bot',
@@ -166,6 +168,7 @@ export const SCREEN_TITLES: Record<Screen, string> = {
   users: 'Пользователи',
   journal: 'Журнал изменений',
   settings: 'Настройки марафона',
+  channel: 'Канал отчётов',
 };
 
 /** Сколько дней идёт марафон по умолчанию — длина берётся из его дат. */

@@ -119,6 +119,19 @@ export function validate(s: AppState): ValidationIssue[] {
     W(`Тем с напоминаниями ${reminded}, а лимит в день — ${cap}: о ${reminded - cap} ${plural(reminded - cap, 'теме', 'темах', 'темах')} не напомнят`, 'bot');
   }
 
+  // Канал отчётов обязателен — те же правила, что у бэкенда перед запуском.
+  if (m && m.status !== 'finished' && m.status !== 'archive') {
+    const ch = m.channel;
+    if (!ch.link) E('Нет ссылки на канал отчётов', 'channel');
+    else if (!ch.chatId) E('Канал отчётов не подключён: добавьте бота в канал админом', 'channel');
+    else if (!ch.ready) E('У бота в канале не хватает прав: нужно публиковать и приглашать', 'channel');
+    else {
+      if (!ch.isPrivate) W('Канал отчётов публичный: видео участниц может увидеть кто угодно', 'channel');
+      if (!ch.protectedContent) W('В канале не запрещено копирование: видео можно сохранить и переслать', 'channel');
+      if (!ch.rights.restrict) W('Бот не может удалять из канала: исключённые из марафона останутся в нём', 'channel');
+    }
+  }
+
   if (m) {
     if (m.status === 'draft' && m.start < localDate(FALLBACK_TZ)) E(`Дата начала ${m.start} уже прошла`, 'settings');
     if (m.end < m.start) E('Дата окончания раньше начала', 'settings');

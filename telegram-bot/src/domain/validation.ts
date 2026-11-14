@@ -43,6 +43,15 @@ export interface MarathonInput {
   endDate: string;
   namaz: NamazId[];
   topics: TopicInput[];
+  /** Канал отчётов: есть ли ссылка и готов ли бот в нём работать. */
+  channel?: {
+    link: boolean;
+    connected: boolean;
+    ready: boolean;
+    isPrivate: boolean;
+    protectedContent: boolean;
+    canRestrict: boolean;
+  };
 }
 
 export interface ValidationContext {
@@ -108,6 +117,23 @@ export function validateMarathon(m: MarathonInput, ctx: ValidationContext): Issu
 
   // Пересечение окон — не ошибка: «Зикир» на весь день идёт поверх намазов,
   // а отчёт участница сдаёт по каждой теме отдельно, кнопкой с её id.
+
+  // Канал отчётов обязателен: туда бот выкладывает видео и туда впускает участниц.
+  // Завершённым и архивным он уже ни к чему.
+  const ch = m.channel;
+  if (ch && m.status !== 'finished' && m.status !== 'archive') {
+    if (!ch.link) {
+      err('channel_link_missing', 'Нет ссылки на канал отчётов', { kind: 'marathon' });
+    } else if (!ch.connected) {
+      err('channel_not_connected', 'Канал отчётов не подключён: добавьте бота в канал админом', { kind: 'marathon' });
+    } else if (!ch.ready) {
+      err('channel_rights', 'У бота в канале не хватает прав: нужно публиковать и приглашать по ссылке', { kind: 'marathon' });
+    } else {
+      if (!ch.isPrivate) warn('channel_public', 'Канал отчётов публичный: видео участниц может увидеть кто угодно', { kind: 'marathon' });
+      if (!ch.protectedContent) warn('channel_copying', 'В канале не запрещено копирование: видео можно сохранить и переслать', { kind: 'marathon' });
+      if (!ch.canRestrict) warn('channel_restrict', 'Бот не может удалять из канала: исключённые из марафона останутся в нём', { kind: 'marathon' });
+    }
+  }
 
   if (m.status === 'draft' && m.startDate < ctx.today) {
     err('start_in_past', `Дата начала ${m.startDate} уже прошла`, { kind: 'marathon' });

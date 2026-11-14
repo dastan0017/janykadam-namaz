@@ -3,18 +3,20 @@ import { ApiError, USE_SEED, setUnauthorizedHandler } from '../api/client';
 import { api } from '../api/endpoints';
 import { loadGlobal, loadMarathon, loadParts, type GlobalPart } from '../api/load';
 import {
-  botPatch, marathonPatch, optionPatch, questionPatch, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
+  botPatch, marathonPatch, optionPatch, questionPatch, toChannelStatus, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
 } from '../api/map';
 import { GLOBAL, NAMAZ } from '../data/constants';
 import { initialState } from '../data/initial';
 import { seed } from '../data/seed';
 import { currentData, currentMarathon, filteredParts, segments } from '../lib/derive';
 import { changedKeys, isDirty, snapshot } from '../lib/edits';
+import { channelLinkError, normalizeChannelLink } from '../lib/channel';
 import { plural, slugify } from '../lib/format';
 import { buildPath, currentPath, parseRoute, type Route } from '../lib/route';
 import { localDate, tzLabel } from '../lib/time';
 import type {
-  AppState, BotSettings, BotText, EditKind, EditState, Marathon, MarathonData, QuestionType, Screen, Snapshot,
+  AppState, BotSettings, BotText, ChannelStatus, ChannelSummary, EditKind, EditState, Marathon, MarathonData, QuestionType, Screen,
+  Snapshot,
 } from '../types';
 import { ActionsCtx, StateCtx, type Actions, type Patch, type Updater } from './context';
 
@@ -39,6 +41,8 @@ const REFRESH: Record<Screen, (GlobalPart | 'data')[]> = {
   broadcasts: ['data'],
   analytics: ['data'],
   settings: ['marathons', 'data'],
+  // Само состояние канала экран опрашивает сам — оно меняется в Telegram.
+  channel: ['marathons'],
   namaz: ['marathons', 'data'],
   texts: ['texts'],
   bot: ['bot'],
@@ -522,7 +526,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const go: Actions['go'] = (screen, extra) => guard(() => set({ screen, navOpen: false, ...extra }));
 
-    return {
+    /** Живое состояние канала — и в карточку марафона: от него зависят проверки запуска. */
+    const applyChannel = (id: string, st: ChannelStatus) =>
+      setState((s) => ({
+        ...s,
+        channelStatus: { ...s.channelStatus, [id]: st },
+        marathons: s.marathons.map((m) => {
+          if (m.id !== id) return m;
+          const summary: ChannelSummary = {
+            link: st.link,
+            chatId: st.chatId,
+            title: st.title,
+            inviteLink: st.inviteLink,
+            rights: st.rights,
+            isPrivate: st.isPrivate,
+            protectedContent: st.protectedContent,
+            ready: st.ready,
+          };
+          return { ...m, channel: summary };
+        }),
+      }));
+
+    const actions: Actions = {
       set,
       go,
       toast,
@@ -569,46 +594,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }));
         }),
 
-      duplicate: (id) => {
-        const src = state.marathons.find((m) => m.id === id);
-        const dd = state.data[id];
-        if (!src) return;
-        void (async () => {
-          try {
-            const copy = await api.duplicateMarathon(id);
-            await reloadGlobal();
-            await reloadMarathon(copy.id);
-            const nz = (dd?.namaz ?? []).length;
-            const nt = dd?.topics.length ?? 0;
-            toast(
-              `Создан черновик «${copy.name}» — ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')} и ${nt} ${plural(nt, 'своя тема', 'свои темы', 'своих тем')}, без участниц`,
-            );
-          } catch (err) {
-            toast(errorText(err));
-          }
-        })();
+      openNewM: (fromId) => {
+        const src = fromId ? state.marathons.find((m) => m.id === fromId) : undefined;
+        set({
+          newM: src
+            ? { name: `Копия: ${src.name}`, start: src.start, end: src.end, channelLink: '', fromId: src.id, err: '' }
+            : { name: '', start: '2026-12-01', end: '2026-12-30', channelLink: '', err: '' },
+        });
       },
+
+      // Копия — тоже новый марафон, и ей нужен свой канал: сначала форма.
+      duplicate: (id) => actions.openNewM(id),
 
       createM: () => {
         const nm = state.newM;
         if (!nm) return;
-        if (!nm.name.trim()) {
-          set({ newM: { ...nm, err: 'Название обязательно' } });
+        const name = nm.name.trim();
+        const linkErr = channelLinkError(nm.channelLink);
+        if (!name || linkErr) {
+          set({ newM: { ...nm, touched: true, err: !name ? 'Название обязательно' : linkErr } });
           return;
         }
-        const name = nm.name.trim();
+        const channelLink = normalizeChannelLink(nm.channelLink)!;
+        const src = nm.fromId ? state.marathons.find((m) => m.id === nm.fromId) : undefined;
+        const dd = nm.fromId ? state.data[nm.fromId] : undefined;
+
         void (async () => {
           try {
-            const created = await api.createMarathon({
-              code: slugify(name),
-              name,
-              startDate: nm.start || localDate('Asia/Bishkek'),
-              endDate: nm.end || localDate('Asia/Bishkek'),
-            });
+            const created = src
+              ? await api.duplicateMarathon(src.id, { name, startDate: nm.start, endDate: nm.end, channelLink })
+              : await api.createMarathon({
+                  code: slugify(name),
+                  name,
+                  startDate: nm.start || localDate('Asia/Bishkek'),
+                  endDate: nm.end || localDate('Asia/Bishkek'),
+                  channelLink,
+                });
             await reloadGlobal();
             await reloadMarathon(created.id);
-            set({ newM: null, mid: created.id });
-            toast(`Черновик создан, код ${created.code}. На странице «Темы» отметьте намазы и добавьте свои темы.`);
+            // Сразу на страницу канала: без бота в канале марафон не запустить.
+            set({ newM: null, mid: created.id, screen: 'channel', navOpen: false });
+            if (src) {
+              const nz = (dd?.namaz ?? []).length;
+              const nt = dd?.topics.length ?? 0;
+              toast(
+                `Создан черновик «${created.name}»: ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')} и ${nt} ${plural(nt, 'своя тема', 'свои темы', 'своих тем')}. Теперь добавьте бота в канал.`,
+              );
+            } else {
+              toast(`Черновик «${created.name}» создан. Теперь добавьте бота в канал — шаги на этой странице.`);
+            }
           } catch (err) {
             set((s) => ({ newM: s.newM ? { ...s.newM, err: errorText(err) } : null }));
           }
@@ -675,6 +709,75 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             toast(errorText(err));
           }
         })();
+      },
+
+      /* ───────── канал отчётов ───────── */
+
+      loadChannel: async (id) => {
+        try {
+          const st = toChannelStatus(await api.channelStatus(id));
+          applyChannel(id, st);
+        } catch (err) {
+          // Опрос раз в несколько секунд: всплывающая ошибка на каждый тик только мешала бы.
+          if (err instanceof ApiError && err.status === 401) throw err;
+        }
+      },
+
+      saveChannelLink: async (link) => {
+        const mid = state.mid;
+        if (!mid) return false;
+        const err = channelLinkError(link);
+        if (err) {
+          toast(err);
+          return false;
+        }
+        try {
+          await api.patchMarathon(mid, { channelLink: normalizeChannelLink(link) });
+          await reloadGlobal();
+          await actions.loadChannel(mid);
+          toast('Ссылка на канал сохранена');
+          return true;
+        } catch (e) {
+          toast(errorText(e));
+          return false;
+        }
+      },
+
+      connectChannel: (chatId) => {
+        const mid = state.mid;
+        if (!mid) return;
+        void (async () => {
+          try {
+            applyChannel(mid, toChannelStatus(await api.channelConnect(mid, chatId)));
+            await reloadGlobal();
+            toast('Канал подключён — бот написал в него первое сообщение');
+          } catch (e) {
+            toast(errorText(e));
+          }
+        })();
+      },
+
+      disconnectChannel: () => {
+        const m = currentMarathon(state);
+        if (!m) return;
+        confirmAction(
+          `Отвязать канал «${m.channel.title || 'без названия'}»?`,
+          'Бот перестанет выкладывать туда отчёты и впускать участниц. Сам канал и посты в нём останутся. После этого можно подключить другой канал — участницы получат кнопку в него.',
+          'Отвязать',
+          true,
+          () => {
+            set({ confirm: null });
+            void (async () => {
+              try {
+                applyChannel(m.id, toChannelStatus(await api.channelDisconnect(m.id)));
+                await reloadGlobal();
+                toast('Канал отвязан');
+              } catch (e) {
+                toast(errorText(e));
+              }
+            })();
+          },
+        );
       },
 
       /* ───────── темы ───────── */
@@ -1262,6 +1365,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })();
       },
     };
+    return actions;
   }, [state, set, toast, bootstrap, reloadGlobal, reloadMarathon, undoEdit]);
 
   return (

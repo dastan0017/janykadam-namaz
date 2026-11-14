@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { ParticipantDrawer } from './components/ParticipantDrawer';
 import { PointsModal } from './components/PointsModal';
@@ -14,6 +15,7 @@ import { Analytics } from './screens/Analytics';
 import { BotSettings } from './screens/BotSettings';
 import { BotTexts } from './screens/BotTexts';
 import { Broadcasts } from './screens/Broadcasts';
+import { Channel } from './screens/Channel';
 import { Journal } from './screens/Journal';
 import Login from './screens/Login';
 import { MarathonSettings } from './screens/MarathonSettings';
@@ -59,6 +61,13 @@ function Panel() {
 
   const hasRail = !noPerm && !!buildPreview(s);
 
+  // Новый экран открывается сверху: иначе после создания марафона страница
+  // канала открывалась прокрученной, и итог с первым шагом оставался за краем.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [screen, s.mid]);
+
   const body = noPerm ? (
     <div className="card" style={{ padding: 40, textAlign: 'center', maxWidth: 540, margin: '40px auto' }}>
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Только для админов</div>
@@ -87,6 +96,8 @@ function Panel() {
     <Analytics />
   ) : screen === 'settings' ? (
     <MarathonSettings />
+  ) : screen === 'channel' ? (
+    <Channel />
   ) : screen === 'namaz' ? (
     <Namaz />
   ) : screen === 'texts' ? (
@@ -107,7 +118,7 @@ function Panel() {
         <Header isMobile={isMobile} />
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 22px 40px' }}>
+          <main ref={mainRef} style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 22px 40px' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               {crumbs ? <span style={{ color: 'var(--muted)', fontSize: 13 }}>{crumbs}</span> : null}
               <h1 className="h-page">{SCREEN_TITLES[screen]}</h1>

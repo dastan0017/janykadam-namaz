@@ -1,6 +1,6 @@
 import { fileUrl, request } from './client';
 import type {
-  AdminUserDto, AnalyticsDto, AuditEntryDto, BotSettingsDto, BotTextDto, BroadcastDto, BroadcastProgressDto,
+  AdminUserDto, AnalyticsDto, AuditEntryDto, BotSettingsDto, BotTextDto, BroadcastDto, BroadcastProgressDto, ChannelStatusDto,
   MarathonDto, MeDto, NamazDto, OverviewDto, ParticipantDetailDto, ParticipantRowDto, PrayerPresetDto,
   PrayerTimesDto, QuestionDto, QuestionTypeDto, Role, TelegramAuthPayload, TopicDto, ValidationDto,
 } from './dto';
@@ -22,12 +22,28 @@ export const api = {
 
   marathons: () => request<MarathonDto[]>('/marathons'),
   marathon: (id: string) => request<MarathonDto>(`/marathons/${id}`),
-  createMarathon: (body: { code: string; name: string; startDate: string; endDate: string; defaultLang?: 'kg' | 'ru' }) =>
-    request<MarathonDto>('/marathons', { method: 'POST', body }),
+  createMarathon: (body: {
+    code: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    channelLink: string;
+    defaultLang?: 'kg' | 'ru';
+  }) => request<MarathonDto>('/marathons', { method: 'POST', body }),
   patchMarathon: (id: string, body: Record<string, unknown>) =>
     request<MarathonDto>(`/marathons/${id}`, { method: 'PATCH', body }),
   deleteMarathon: (id: string) => request<{ ok: true }>(`/marathons/${id}`, { method: 'DELETE' }),
-  duplicateMarathon: (id: string) => request<MarathonDto>(`/marathons/${id}/duplicate`, { method: 'POST' }),
+  /** Копия: темы и намазы переносятся, канал — обязательно свой. */
+  duplicateMarathon: (id: string, body: { name: string; startDate: string; endDate: string; channelLink: string }) =>
+    request<MarathonDto>(`/marathons/${id}/duplicate`, { method: 'POST', body }),
+
+  /* ───────── канал отчётов ───────── */
+
+  /** Живая проверка: бот в канале, права, запрет копирования. */
+  channelStatus: (id: string) => request<ChannelStatusDto>(`/marathons/${id}/channel`),
+  channelConnect: (id: string, chatId: string) =>
+    request<ChannelStatusDto>(`/marathons/${id}/channel/connect`, { method: 'POST', body: { chatId } }),
+  channelDisconnect: (id: string) => request<ChannelStatusDto>(`/marathons/${id}/channel/disconnect`, { method: 'POST' }),
   validation: (id: string) => request<ValidationDto>(`/marathons/${id}/validation`),
   launch: (id: string) => request<MarathonDto>(`/marathons/${id}/launch`, { method: 'POST' }),
   overview: (id: string) => request<OverviewDto>(`/marathons/${id}/overview`),

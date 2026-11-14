@@ -86,9 +86,20 @@ export const marathons = pgTable(
     remindMorning: time('remind_morning'),
     remindEvening: time('remind_evening'),
     skipSubmitted: boolean('skip_submitted').notNull().default(true),
+    /** Ссылка на канал отчётов, как её вставил админ. Без неё марафон не создать. */
+    channelLink: text('channel_link'),
+    /** Канал, где бот уже админ. Пока бота туда не добавили — пусто. */
+    channelChatId: text('channel_chat_id'),
+    channelTitle: text('channel_title'),
+    /** Ссылка с заявкой на вступление: её получают участницы, заявки одобряет бот. */
+    channelInviteLink: text('channel_invite_link'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('marathons_code_key').on(t.code)],
+  (t) => [
+    uniqueIndex('marathons_code_key').on(t.code),
+    // Один канал — один марафон: иначе отчёты двух марафонов смешаются.
+    uniqueIndex('marathons_channel_chat_key').on(t.channelChatId),
+  ],
 );
 
 /** Зеркало кодовых констант. Только чтение: API для правки нет. */
@@ -211,6 +222,10 @@ export const enrollments = pgTable(
     streak: integer('streak').notNull().default(0),
     bestStreak: integer('best_streak').notNull().default(0),
     latePassesUsed: integer('late_passes_used').notNull().default(0),
+    /** Когда бот прислал кнопку «вступить в канал». */
+    channelInvitedAt: timestamp('channel_invited_at', { withTimezone: true }),
+    /** Когда бот одобрил её заявку в канал; сбрасывается, когда её оттуда убрали. */
+    channelJoinedAt: timestamp('channel_joined_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -234,17 +249,29 @@ export const reports = pgTable(
     windowClosesAt: timestamp('window_closes_at', { withTimezone: true }).notNull(),
     submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
     late: boolean('late').notNull().default(false),
-    /** Видео не скачиваем: храним только идентификаторы и длительность. */
+    /**
+     * Видео не храним: только идентификаторы и длительность. В канал марафона
+     * бот перезаливает кружок на лету, ничего не сохраняя на диск.
+     */
     videoFileId: text('video_file_id').notNull(),
     videoFileUniqueId: text('video_file_unique_id').notNull(),
     videoDurationSec: integer('video_duration_sec'),
     pointsAwarded: integer('points_awarded').notNull().default(0),
     answers: jsonb('answers').$type<Record<string, unknown>>(),
+    /**
+     * Публикация в канал марафона. Пусто — канала не было, когда отчёт приняли;
+     * `pending` ждёт очереди, дальше `posted`, `failed` или `skipped`.
+     */
+    channelState: text('channel_state'),
+    channelChatId: text('channel_chat_id'),
+    channelMessageId: integer('channel_message_id'),
+    channelAttempts: smallint('channel_attempts').notNull().default(0),
   },
   (t) => [
     uniqueIndex('reports_enrollment_topic_day_key').on(t.enrollmentId, t.topicId, t.dayKey),
     uniqueIndex('reports_video_unique_key').on(t.videoFileUniqueId),
     index('reports_enrollment_day_idx').on(t.enrollmentId, t.dayKey),
+    index('reports_channel_pending_idx').on(t.submittedAt).where(sql`${t.channelState} = 'pending'`),
   ],
 );
 
@@ -351,6 +378,32 @@ export const broadcastDeliveries = pgTable(
     index('broadcast_deliveries_pending_idx').on(t.status, t.sendAfter),
   ],
 );
+
+/* ───────────────── каналы, где бот админ ───────────────── */
+
+/**
+ * Каналы, куда бота добавили. Запись появляется по апдейту my_chat_member —
+ * ещё до того, как канал привязан к марафону: так панель может предложить
+ * «это ваш канал?», если ссылка не совпала.
+ */
+export const botChannels = pgTable('bot_channels', {
+  chatId: text('chat_id').primaryKey(),
+  title: text('title').notNull().default(''),
+  /** Публичное имя; у закрытого канала его нет. */
+  username: text('username'),
+  /** Основная ссылка-приглашение: по ней узнаём канал из панели. */
+  inviteLink: text('invite_link'),
+  /** Статус бота в канале: administrator, left, kicked… */
+  status: text('status').notNull(),
+  canPost: boolean('can_post').notNull().default(false),
+  canInvite: boolean('can_invite').notNull().default(false),
+  canRestrict: boolean('can_restrict').notNull().default(false),
+  /** «Запретить копирование»: видео нельзя сохранить или переслать. */
+  protectedContent: boolean('protected_content').notNull().default(false),
+  /** Кто добавил бота — Telegram id админа канала. */
+  addedBy: text('added_by'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 /* ───────────────── настройки бота ───────────────── */
 

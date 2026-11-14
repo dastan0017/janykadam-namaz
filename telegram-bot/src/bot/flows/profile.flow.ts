@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Composer } from 'grammy';
 import { DRIZZLE, type Db } from '../../db/drizzle.module';
 import { toLocalDate } from '../../domain/windows';
+import { ChannelsService } from '../../services/channels.service';
 import { ParticipantsService, type ActiveContext } from '../../services/participants.service';
 import type { Ctx } from '../context';
 import { aboutKeyboard, goalKeyboard } from '../keyboards';
@@ -19,6 +20,7 @@ export class ProfileFlow {
   constructor(
     @Inject(DRIZZLE) private readonly db: Db,
     private readonly participants: ParticipantsService,
+    private readonly channels: ChannelsService,
   ) {}
 
   register(bot: Composer<Ctx>): void {
@@ -79,11 +81,13 @@ export class ProfileFlow {
 
     blocks.push(goal ? await ctx.t('goal_mine', { максат: goal }) : await ctx.t('goal_none'));
 
+    const channelUrl = await this.channels.inviteLinkOf(active.marathon.id);
     await ctx.reply(blocks.join('\n\n'), {
       reply_markup: aboutKeyboard(
         await ctx.t(scope === 'namaz' ? 'btn_uzur_off' : 'btn_uzur_on'),
         scope === 'namaz',
         await ctx.t(goal ? 'btn_goal_change' : 'btn_goal_write'),
+        channelUrl ? { label: await ctx.t('btn_channel_join'), url: channelUrl } : undefined,
       ),
     });
   }

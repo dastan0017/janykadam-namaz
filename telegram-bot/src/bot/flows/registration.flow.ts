@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { utcOffsetLabel, type Location } from '../../domain/location';
 import { joinTopics } from '../../domain/text';
 import { toLocalDate } from '../../domain/windows';
+import { ChannelsService } from '../../services/channels.service';
 import { LocationService } from '../../services/location.service';
 import { GOAL_MAX_LENGTH, ParticipantsService } from '../../services/participants.service';
 import { PrayerService } from '../../services/prayer.service';
@@ -12,7 +13,7 @@ import { SettingsService } from '../../services/settings.service';
 import { unpackId } from '../callback-data';
 import type { Ctx } from '../context';
 import {
-  changeLocationKeyboard, goalAskKeyboard, languageKeyboard, locationKeyboard, mainKeyboard,
+  changeLocationKeyboard, channelKeyboard, goalAskKeyboard, languageKeyboard, locationKeyboard, mainKeyboard,
   notifyNextKeyboard, rulesKeyboard, searchResultsKeyboard,
 } from '../keyboards';
 
@@ -33,6 +34,7 @@ export class RegistrationFlow {
     private readonly prayer: PrayerService,
     private readonly reports: ReportsService,
     private readonly settings: SettingsService,
+    private readonly channels: ChannelsService,
   ) {}
 
   register(bot: Composer<Ctx>): void {
@@ -401,7 +403,22 @@ export class RegistrationFlow {
     if (!marathonId || !ctx.participant) return;
 
     const marathon = await this.participants.marathonById(marathonId);
-    if (marathon) await this.welcome(ctx, marathon);
+    if (!marathon) return;
+    await this.welcome(ctx, marathon);
+    await this.inviteToChannel(ctx, marathon);
+  }
+
+  /** Кнопка в канал марафона — последним сообщением записи, чтобы не потерялась. */
+  private async inviteToChannel(ctx: Ctx, marathon: { id: string; name: string }): Promise<void> {
+    if (!ctx.participant) return;
+    const url = await this.channels.inviteLinkOf(marathon.id);
+    if (!url) return;
+
+    await ctx.reply(await ctx.t('channel_invite', { марафон: marathon.name }), {
+      reply_markup: channelKeyboard(await ctx.t('btn_channel_join'), url),
+    });
+    const enrollment = await this.participants.enrollmentOf(ctx.participant.id, marathon.id);
+    if (enrollment) await this.channels.markInvited(enrollment.id);
   }
 
   /* ───────── приветствие ───────── */

@@ -5,6 +5,7 @@ import { botTexts, marathons, questionOptions, questions, topics } from '../db/s
 import type { NamazId } from '../domain/namaz';
 import { validateMarathon, type Issue, type TopicInput } from '../domain/validation';
 import { toLocalDate } from '../domain/windows';
+import { ChannelsService } from './channels.service';
 import { TopicsService } from './topics.service';
 
 /** Эталонный пояс для проверки дат — Бишкек. */
@@ -15,6 +16,7 @@ export class ValidationService {
   constructor(
     @Inject(DRIZZLE) private readonly db: Db,
     private readonly topicsSvc: TopicsService,
+    private readonly channels: ChannelsService,
   ) {}
 
   async validate(marathonId: string): Promise<Issue[]> {
@@ -62,6 +64,8 @@ export class ValidationService {
     const texts = await this.db.select().from(botTexts);
     const untranslatedTextKeys = texts.filter((t) => !t.ru.trim() || !t.kg.trim()).map((t) => t.key);
 
+    const ch = await this.channels.summary(marathonId);
+
     return validateMarathon(
       {
         status: marathon.status,
@@ -69,6 +73,14 @@ export class ValidationService {
         endDate: marathon.endDate,
         namaz: enabled.namaz as NamazId[],
         topics: topicInputs,
+        channel: {
+          link: !!ch.link,
+          connected: !!ch.chatId,
+          ready: ch.ready,
+          isPrivate: ch.isPrivate,
+          protectedContent: ch.protectedContent,
+          canRestrict: ch.rights.restrict,
+        },
       },
       { today, untranslatedTextKeys },
     );

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
-import { enrollments, pointsLedger, reportDrafts, reports } from '../db/schema';
+import { enrollments, marathons, pointsLedger, reportDrafts, reports } from '../db/schema';
 import { canSubmitLate, reportPoints } from '../domain/scoring';
 import {
   closedWindowsOfDay, dayEvaluationAt, isoWeekKey, localDateShift, nextWindowAfter,
@@ -248,6 +248,14 @@ export class ReportsService {
     const awarded = reportPoints(input.topicPoints, input.optionPoints);
 
     return this.db.transaction(async (tx) => {
+      // Есть канал у марафона — отчёт встаёт в очередь на публикацию.
+      const [channel] = await tx
+        .select({ chatId: marathons.channelChatId })
+        .from(enrollments)
+        .innerJoin(marathons, eq(marathons.id, enrollments.marathonId))
+        .where(eq(enrollments.id, draft.enrollmentId))
+        .limit(1);
+
       const [report] = await tx
         .insert(reports)
         .values({
@@ -264,6 +272,7 @@ export class ReportsService {
           videoDurationSec: draft.videoDurationSec,
           pointsAwarded: awarded,
           answers: draft.answers,
+          channelState: channel?.chatId ? 'pending' : null,
         })
         .returning();
 

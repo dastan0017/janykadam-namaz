@@ -57,6 +57,7 @@ export function initialState(): AppState {
       result: null,
     },
     newM: null,
+    channelStatus: {},
     filterTab: 'all',
     invite: null,
     userQ: '',

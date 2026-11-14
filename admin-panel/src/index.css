@@ -951,3 +951,411 @@ button:focus-visible,
   opacity: 0.45;
   cursor: default;
 }
+
+/* ───────── Канал отчётов ───────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+a.btn,
+a.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.req {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.input-bad {
+  border-color: var(--danger) !important;
+  background: var(--danger-soft);
+}
+
+/* Форма нового марафона */
+.new-m {
+  border-color: var(--accent);
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.new-m-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 2fr) repeat(2, minmax(130px, 1fr));
+  gap: 10px;
+}
+.new-m-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--sand-2);
+  border: 1px solid var(--line);
+}
+.new-m-channel .btn-link {
+  align-self: flex-start;
+}
+.new-m-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Инструкции */
+.guide-box {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+}
+.guide-list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  line-height: 1.5;
+}
+.guide-list li::marker {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+.guide-more summary {
+  cursor: pointer;
+  color: var(--accent-text);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.guide-more[open] summary {
+  margin-bottom: 8px;
+}
+
+/* Страница канала */
+.channel-page {
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.channel-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.channel-hero-ok {
+  border-color: var(--sage);
+  background: var(--sage-panel);
+}
+.channel-hero-todo {
+  border-color: var(--accent);
+  background: var(--accent-row);
+}
+.channel-hero-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.channel-hero-ok .channel-hero-icon {
+  background: var(--sage-text);
+  border-color: var(--sage-text);
+  color: #fff;
+}
+.channel-hero-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.channel-progress {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.channel-progress-dot {
+  width: 22px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--line);
+}
+.channel-progress-dot.on {
+  background: var(--sage);
+}
+
+/* Шаги */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.step-current {
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 2px 10px rgba(140, 73, 26, 0.08);
+}
+.step-todo {
+  opacity: 0.62;
+}
+.step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  background: var(--sand);
+  color: var(--ink-3);
+}
+.step-current .step-num {
+  background: var(--accent);
+  color: #fff;
+}
+.step-done .step-num {
+  background: var(--sage-text);
+  color: #fff;
+}
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.step-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 32px;
+}
+.step-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.btn-big {
+  align-self: flex-start;
+  padding: 11px 20px;
+  font-size: 14.5px;
+}
+
+.waiting {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--shade);
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.waiting-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: waiting-pulse 1.4s ease-in-out infinite;
+}
+@keyframes waiting-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .waiting-dot {
+    animation: none;
+  }
+}
+
+.candidate-box {
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+}
+.fix-box {
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--warn-text);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* Галочки проверки */
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.check-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.check-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  margin-top: 1px;
+}
+.check-row-ok .check-mark {
+  background: var(--sage-text);
+}
+.check-row-bad .check-mark {
+  background: var(--danger);
+}
+.check-row-warn .check-mark {
+  background: var(--warn);
+}
+.check-soft {
+  color: var(--warn-text);
+  font-size: 12px;
+}
+
+/* Что будет дальше + пример поста */
+.after-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  gap: 18px;
+  align-items: start;
+}
+.after-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.5;
+}
+.tg-post {
+  margin: 0;
+  background: #0e1621;
+  border-radius: var(--r-xl);
+  padding: 8px;
+}
+.tg-post-video {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px 10px 4px 4px;
+  background: #1c2733;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.tg-post-circle {
+  width: 82%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e9c9a6, #b9805a 60%, #7a4b2f);
+  display: grid;
+  place-items: center;
+}
+.tg-post-play {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 15px;
+  padding-left: 3px;
+}
+.tg-post-dur {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 11px;
+}
+.tg-post-caption {
+  padding: 8px 6px 4px;
+  color: #f5f5f5;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.banner-bad {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  text-align: left;
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .new-m-grid,
+  .after-grid {
+    grid-template-columns: 1fr;
+  }
+  .tg-post {
+    max-width: 260px;
+  }
+  .step {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

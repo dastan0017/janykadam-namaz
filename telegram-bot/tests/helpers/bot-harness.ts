@@ -10,6 +10,7 @@ import { Pool } from 'pg';
 import * as schema from '../../src/db/schema';
 import { BossService } from '../../src/jobs/boss.service';
 import { BroadcastWorker } from '../../src/jobs/broadcast.worker';
+import { ChannelWorker } from '../../src/jobs/channel.worker';
 import { JobsModule } from '../../src/jobs/jobs.module';
 import { PlannerService } from '../../src/jobs/planner.service';
 import { BroadcastService } from '../../src/services/broadcast.service';
@@ -56,6 +57,8 @@ export interface Harness {
   workers: WorkersService;
   planner: PlannerService;
   broadcasts: BroadcastWorker;
+  /** Канал марафона: приглашения, исключённые и публикация отчётов. */
+  channel: ChannelWorker;
   broadcastSvc: BroadcastService;
   notify: NotifyService;
   /** Настройки бота — тестам, которым нужен, например, свой лимит напоминаний. */
@@ -160,6 +163,7 @@ export async function makeHarness(): Promise<Harness> {
     workers: moduleRef.get(WorkersService),
     planner: moduleRef.get(PlannerService),
     broadcasts: moduleRef.get(BroadcastWorker),
+    channel: moduleRef.get(ChannelWorker),
     broadcastSvc: moduleRef.get(BroadcastService),
     notify: moduleRef.get(NotifyService),
     settings: moduleRef.get(SettingsService),

@@ -14,6 +14,7 @@ export const QUEUE = {
   precompute: 'precompute-prayer',
   broadcastSend: 'broadcast-send',
   purgeDrafts: 'purge-drafts',
+  channelSync: 'channel-sync',
 } as const;
 
 /**

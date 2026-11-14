@@ -24,8 +24,24 @@ export function Overview() {
 
   const pctColor = st.pct >= 70 ? 'var(--sage-text)' : st.pct >= 50 ? '#8a5f10' : 'var(--danger)';
 
+  // Без канала участницы не видят отчёты друг друга, а черновик не запустить.
+  const channelProblem = !!m && !m.channel.ready && m.status !== 'finished' && m.status !== 'archive';
+
   return (
     <>
+      {channelProblem ? (
+        <button type="button" className="card banner-bad" onClick={() => go('channel')}>
+          <span aria-hidden="true">📺</span>
+          <span style={{ flex: 1 }}>
+            {m.channel.chatId ? 'У бота в канале отчётов не хватает прав' : 'Канал отчётов не подключён'}
+            <span style={{ fontWeight: 400, display: 'block', fontSize: 12.5 }}>
+              {m.status === 'draft' ? 'Без него марафон не запустить.' : 'Видеоотчёты не публикуются, участницы не видят друг друга.'} Шаги — на странице «Канал отчётов».
+            </span>
+          </span>
+          <span aria-hidden="true">Подключить →</span>
+        </button>
+      ) : null}
+
       {isDraft ? (
         <div className="card" style={{ marginBottom: 14, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>

@@ -52,12 +52,31 @@ export interface MarathonDto {
   /** Свои правила марафона; пусто — действуют общие из текстов бота. */
   rulesKg: string | null;
   rulesRu: string | null;
+  channelLink?: string | null;
+  channel?: ChannelSummaryDto;
   createdAt: string;
   /** Включённые намазы, в порядке библиотеки. */
   namazIds?: string[];
   /** Сколько своих тем — для карточки в списке марафонов. */
   topicsCount?: number;
   stats?: MarathonStatsDto;
+}
+
+export interface ChannelSummaryDto {
+  link: string | null;
+  chatId: string | null;
+  title: string | null;
+  inviteLink: string | null;
+  rights: { admin: boolean; post: boolean; invite: boolean; restrict: boolean };
+  isPrivate: boolean;
+  protectedContent: boolean;
+  ready: boolean;
+}
+
+export interface ChannelStatusDto extends ChannelSummaryDto {
+  counts: { total: number; invited: number; joined: number };
+  candidates: { chatId: string; title: string; username: string | null }[];
+  checkedAt: string;
 }
 
 export interface OverviewDto extends MarathonStatsDto {

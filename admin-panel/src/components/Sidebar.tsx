@@ -8,7 +8,7 @@ import { Icon, StatusPill } from './ui';
 interface NavDef {
   screen: Screen;
   label: string;
-  badge?: number;
+  badge?: number | string;
   tone?: 'neutral' | 'bad' | 'warn';
   tag?: string;
 }
@@ -46,12 +46,15 @@ export function Sidebar() {
   const untranslated = s.texts.filter((t) => !t.kg || !t.ru).length;
   const cur = isCurator(s);
 
+  // Канал не готов — красная отметка, пока марафон ещё идёт или впереди.
+  const channelProblem = !!m && !m.channel.ready && m.status !== 'finished' && m.status !== 'archive';
   const navM: NavDef[] = [
     { screen: 'overview', label: 'Обзор', badge: errs, tone: 'bad' },
     { screen: 'topics', label: 'Темы' },
     { screen: 'participants', label: 'Участницы' },
     { screen: 'broadcasts', label: 'Рассылки' },
     { screen: 'analytics', label: 'Аналитика' },
+    { screen: 'channel', label: 'Канал отчётов', badge: channelProblem ? '!' : undefined, tone: 'bad' },
     { screen: 'settings', label: 'Настройки' },
   ];
   const navBot: NavDef[] = [

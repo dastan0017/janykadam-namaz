@@ -39,6 +39,7 @@ const M_PATHS: Record<string, Screen> = {
   broadcasts: 'broadcasts',
   analytics: 'analytics',
   settings: 'settings',
+  channel: 'channel',
 };
 
 const flip = (src: Record<string, Screen>): Partial<Record<Screen, string>> =>

@@ -159,8 +159,21 @@ export function goalKeyboard(writeLabel: string): InlineKeyboard {
 }
 
 /** «Өзүм жөнүндө»: узур на сегодня и правка цели. */
-export function aboutKeyboard(uzurLabel: string, uzurOn: boolean, goalLabel: string): InlineKeyboard {
-  return new InlineKeyboard().text(uzurLabel, uzurOn ? 'uzur:off' : 'uzur:on').row().text(goalLabel, 'goal:write');
+export function aboutKeyboard(
+  uzurLabel: string,
+  uzurOn: boolean,
+  goalLabel: string,
+  channel?: { label: string; url: string },
+): InlineKeyboard {
+  const kb = new InlineKeyboard().text(uzurLabel, uzurOn ? 'uzur:off' : 'uzur:on').row().text(goalLabel, 'goal:write');
+  // Канал марафона — сюда же: сообщение с приглашением легко потерять в чате.
+  if (channel) kb.row().url(channel.label, channel.url);
+  return kb;
+}
+
+/** Кнопка-ссылка в канал марафона: по ней уходит заявка, бот её одобряет. */
+export function channelKeyboard(label: string, url: string): InlineKeyboard {
+  return new InlineKeyboard().url(label, url);
 }
 
 export function submitForKeyboard(enrollmentId: string, label: string): InlineKeyboard {

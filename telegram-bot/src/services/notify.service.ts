@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
-import { GrammyError } from 'grammy';
+import { GrammyError, type InlineKeyboard } from 'grammy';
 import { BotService } from '../bot/bot.service';
 import { submitForKeyboard } from '../bot/keyboards';
 import { env } from '../config/env';
@@ -77,7 +77,11 @@ export class NotifyService {
    * не её решение. Для рассылки разница видна в панели, поэтому возвращаем не
    * «да/нет», а три состояния.
    */
-  async send(r: Recipient, text: string, opts: { withSwitchButton?: boolean } = {}): Promise<SendOutcome> {
+  async send(
+    r: Recipient,
+    text: string,
+    opts: { withSwitchButton?: boolean; replyMarkup?: InlineKeyboard } = {},
+  ): Promise<SendOutcome> {
     const run = async (): Promise<SendOutcome> => {
       await this.throttle();
 
@@ -94,7 +98,9 @@ export class NotifyService {
                 await this.settings.t('btn_submit_for', r.lang, { марафон: r.marathonName }),
               ),
             }
-          : {};
+          : opts.replyMarkup
+            ? { reply_markup: opts.replyMarkup }
+            : {};
 
       try {
         await this.bot.send(r.chatId, body, extra);

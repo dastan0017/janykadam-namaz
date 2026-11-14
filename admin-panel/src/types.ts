@@ -14,6 +14,7 @@ export type Screen =
   | 'broadcasts'
   | 'analytics'
   | 'settings'
+  | 'channel'
   | 'namaz'
   | 'texts'
   | 'bot'
@@ -165,6 +166,8 @@ export interface Marathon {
   /** Свои правила марафона. Пусто — действуют общие из текстов бота. */
   rulesKg: string;
   rulesRu: string;
+  /** Канал отчётов: туда бот выкладывает видео и впускает участниц. */
+  channel: ChannelSummary;
   /** Итоговое число участниц завершённого марафона. */
   reported?: number;
   /**
@@ -174,6 +177,38 @@ export interface Marathon {
   stats?: { total: number; active: number; submittedToday: number; pct: number };
   namazCount?: number;
   topicsCount?: number;
+}
+
+/** Права бота в канале отчётов. */
+export interface ChannelRights {
+  admin: boolean;
+  post: boolean;
+  invite: boolean;
+  restrict: boolean;
+}
+
+/** Что панель знает о канале марафона. */
+export interface ChannelSummary {
+  /** Ссылка, которую вставил админ. */
+  link: string;
+  /** Канал, где бот уже админ; null — бота ещё не добавили. */
+  chatId: string | null;
+  title: string;
+  /** Ссылка с заявкой, которую бот рассылает участницам. */
+  inviteLink: string | null;
+  rights: ChannelRights;
+  isPrivate: boolean;
+  protectedContent: boolean;
+  /** Бот публикует отчёты и впускает участниц. */
+  ready: boolean;
+}
+
+/** Живое состояние канала со страницы «Канал отчётов». */
+export interface ChannelStatus extends ChannelSummary {
+  counts: { total: number; invited: number; joined: number };
+  /** Каналы, где бот уже админ, но ссылка не совпала: «это ваш?» */
+  candidates: { chatId: string; title: string; username: string | null }[];
+  checkedAt: string;
 }
 
 export interface MarathonData {
@@ -262,6 +297,14 @@ export interface NewMarathonState {
   name: string;
   start: string;
   end: string;
+  /** Ссылка на канал отчётов — обязательна: у каждого марафона свой канал. */
+  channelLink: string;
+  /** Копия марафона: откуда переносить темы. */
+  fromId?: string;
+  /** Раскрыта ли инструкция «как создать канал». */
+  guide?: boolean;
+  /** Ошибки показываем после первой попытки создать. */
+  touched?: boolean;
   err: string;
 }
 
@@ -348,6 +391,8 @@ export interface AppState {
   textKey: string;
   bc: BroadcastState;
   newM: NewMarathonState | null;
+  /** Живое состояние каналов по id марафона — грузится на странице «Канал отчётов». */
+  channelStatus: Record<string, ChannelStatus>;
   filterTab: MarathonStatus | 'all';
   invite: InviteState | null;
   userQ: string;

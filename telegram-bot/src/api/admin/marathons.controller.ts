@@ -7,13 +7,24 @@ import { DRIZZLE, type Db } from '../../db/drizzle.module';
 import {
   enrollments, marathonNamaz, marathons, namazTopics, participants, questionOptions, questions, reports, topics,
 } from '../../db/schema';
+import { BotService } from '../../bot/bot.service';
+import { normalizeChannelLink, parseChannelLink } from '../../domain/channel';
 import { NAMAZ_IDS } from '../../domain/namaz';
 import { hasBlockingErrors } from '../../domain/validation';
 import { toLocalDate } from '../../domain/windows';
 import { PlannerService } from '../../jobs/planner.service';
+import { ChannelError, ChannelsService } from '../../services/channels.service';
 import { ValidationService } from '../../services/validation.service';
 import { AuthService } from '../auth/auth.service';
 import type { AuthedRequest } from '../auth/guards';
+
+/** Ссылка на канал отчётов: хранится в одном виде, `https://t.me/+…` или `https://t.me/имя`. */
+const channelLink = z
+  .string({ error: 'Вставьте ссылку на канал отчётов' })
+  .trim()
+  .min(1, 'Вставьте ссылку на канал отчётов')
+  .refine((v) => parseChannelLink(v) !== null, 'Это не ссылка на канал. Нужна вида https://t.me/+AbCd… или https://t.me/имя_канала')
+  .transform((v) => normalizeChannelLink(parseChannelLink(v)!));
 
 const marathonBody = z.object({
   code: z.string().regex(/^[a-z0-9_]{1,32}$/, 'Код: строчные латинские буквы, цифры и _'),
@@ -22,6 +33,16 @@ const marathonBody = z.object({
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   defaultLang: z.enum(['kg', 'ru']).optional(),
   regOpen: z.boolean().optional(),
+  // Каждый новый марафон — со своим каналом: без ссылки его не создать.
+  channelLink,
+});
+
+/** Копия марафона: свои название, даты и обязательно свой канал. */
+const duplicateBody = z.object({
+  name: z.string().min(1).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  channelLink,
 });
 
 const marathonPatch = marathonBody.partial().extend({
@@ -47,11 +68,14 @@ export class MarathonsController {
     private readonly validation: ValidationService,
     private readonly auth: AuthService,
     private readonly planner: PlannerService,
+    private readonly channels: ChannelsService,
+    private readonly bot: BotService,
   ) {}
 
   @Get('marathons')
   async list() {
     const rows = await this.db.select().from(marathons).orderBy(asc(marathons.startDate));
+    const channels = await this.channels.summaries();
     // Экран «Все марафоны» — сводка по всем сразу, поэтому счётчики идут вместе
     // со списком: иначе панели пришлось бы грузить данные каждого марафона.
     return Promise.all(
@@ -60,6 +84,7 @@ export class MarathonsController {
         namazIds: await this.namazIds(m.id),
         topicsCount: await this.topicsCount(m.id),
         stats: await this.stats(m.id),
+        channel: channels.get(m.id),
       })),
     );
   }
@@ -69,22 +94,93 @@ export class MarathonsController {
     const data = marathonBody.parse(body);
     const [row] = await this.db.insert(marathons).values({ ...data, status: 'draft' }).returning();
     await this.auth.audit(req.admin ?? null, 'create', 'marathon', row.id, { code: row.code });
-    return row;
+    // Бота могли добавить в канал ещё до создания марафона.
+    await this.tryAutoLink(row.id);
+    return { ...row, channel: await this.channels.summary(row.id) };
   }
 
   @Get('marathons/:id')
   async get(@Param('id') id: string) {
     const m = await this.find(id);
-    return { ...m, namazIds: await this.namazIds(id), stats: await this.stats(id) };
+    return { ...m, namazIds: await this.namazIds(id), stats: await this.stats(id), channel: await this.channels.summary(id) };
   }
 
   @Patch('marathons/:id')
   async patch(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthedRequest) {
     const data = marathonPatch.parse(body);
-    await this.find(id);
+    const current = await this.find(id);
+    // Ссылка — только чтобы найти канал. Привязанный канал меняют через «Отвязать».
+    if (data.channelLink !== undefined && current.channelChatId && data.channelLink !== current.channelLink) {
+      throw new BadRequestException('Канал уже подключён. Чтобы сменить его, сначала отвяжите текущий на странице «Канал отчётов»');
+    }
     const [row] = await this.db.update(marathons).set(data).where(eq(marathons.id, id)).returning();
     await this.auth.audit(req.admin ?? null, 'update', 'marathon', id, data as Record<string, unknown>);
-    return row;
+    if (data.channelLink !== undefined) await this.tryAutoLink(id);
+    return { ...row, channel: await this.channels.summary(id) };
+  }
+
+  /* ───────── канал отчётов ───────── */
+
+  /**
+   * Состояние канала — живое: права бота и «запрет копирования» меняются в
+   * Telegram, и панель опрашивает эту ручку, пока админ настраивает канал.
+   */
+  @Get('marathons/:id/channel')
+  async channelStatus(@Param('id') id: string) {
+    await this.find(id);
+    const api = this.bot.bot.api;
+    try {
+      const botId = this.bot.bot.botInfo.id;
+      await this.channels.refresh(api, botId, id);
+      await this.tryAutoLink(id);
+    } catch {
+      // Telegram недоступен — отдаём то, что знаем из базы.
+    }
+
+    const summary = await this.channels.summary(id);
+    const free = summary.chatId ? [] : await this.channels.freeChannels();
+    return {
+      ...summary,
+      counts: await this.channels.counts(id),
+      // Бот уже в канале, но ссылка не совпала — админ выберет его сам.
+      candidates: free.map((c) => ({ chatId: c.chatId, title: c.title, username: c.username })),
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  @Post('marathons/:id/channel/connect')
+  async channelConnect(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthedRequest) {
+    const { chatId } = z.object({ chatId: z.string().min(1) }).parse(body);
+    await this.find(id);
+    try {
+      await this.channels.connect(this.bot.bot.api, id, chatId);
+    } catch (err) {
+      if (err instanceof ChannelError) throw new BadRequestException(err.message);
+      throw err;
+    }
+    await this.auth.audit(req.admin ?? null, 'channel_connect', 'marathon', id, { chatId });
+    return this.channelStatus(id);
+  }
+
+  @Post('marathons/:id/channel/disconnect')
+  async channelDisconnect(@Param('id') id: string, @Req() req: AuthedRequest) {
+    const m = await this.find(id);
+    try {
+      await this.channels.disconnect(this.bot.bot.api, id);
+    } catch (err) {
+      if (err instanceof ChannelError) throw new BadRequestException(err.message);
+      throw err;
+    }
+    await this.auth.audit(req.admin ?? null, 'channel_disconnect', 'marathon', id, { chatId: m.channelChatId, title: m.channelTitle });
+    return this.channelStatus(id);
+  }
+
+  private async tryAutoLink(id: string): Promise<void> {
+    try {
+      await this.channels.autoLinkMarathon(this.bot.bot.api, id);
+    } catch {
+      // Не вышло сейчас — панель покажет шаги и предложит выбрать канал вручную.
+    }
   }
 
   @Delete('marathons/:id')
@@ -97,7 +193,8 @@ export class MarathonsController {
 
   /** Копирует намазы, свои темы, вопросы и варианты. Участницы не переносятся. */
   @Post('marathons/:id/duplicate')
-  async duplicate(@Param('id') id: string, @Req() req: AuthedRequest) {
+  async duplicate(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthedRequest) {
+    const input = duplicateBody.parse(body ?? {});
     const src = await this.find(id);
 
     const copy = await this.db.transaction(async (tx) => {
@@ -107,9 +204,16 @@ export class MarathonsController {
           ...src,
           id: undefined as never,
           code: `${src.code}_copy_${Date.now().toString(36).slice(-4)}`,
-          name: `Копия: ${src.name}`,
+          name: input.name?.trim() || `Копия: ${src.name}`,
+          startDate: input.startDate ?? src.startDate,
+          endDate: input.endDate ?? src.endDate,
           status: 'draft',
           regOpen: false,
+          // Канал у каждого марафона свой: старый не переносим.
+          channelLink: input.channelLink,
+          channelChatId: null,
+          channelTitle: null,
+          channelInviteLink: null,
           createdAt: undefined as never,
         })
         .returning();
@@ -146,7 +250,8 @@ export class MarathonsController {
     });
 
     await this.auth.audit(req.admin ?? null, 'duplicate', 'marathon', copy.id, { from: id });
-    return copy;
+    await this.tryAutoLink(copy.id);
+    return { ...copy, channel: await this.channels.summary(copy.id) };
   }
 
   @Get('marathons/:id/validation')

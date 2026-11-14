@@ -1,4 +1,7 @@
+import { useEffect, useRef } from 'react';
+import { CreateChannelSteps } from '../components/ChannelGuide';
 import { ICONS } from '../data/constants';
+import { channelLinkError } from '../lib/channel';
 import { dateRu, plural } from '../lib/format';
 import { useActions, useAppState } from '../store/context';
 import type { MarathonStatus } from '../types';
@@ -15,66 +18,119 @@ const TABS: { id: MarathonStatus | 'all'; label: string }[] = [
 
 export function Marathons() {
   const s = useAppState();
-  const { set, go, switchM, duplicate, deleteM, copyLink, createM } = useActions();
+  const { set, go, switchM, duplicate, deleteM, copyLink, createM, openNewM } = useActions();
 
   const list = s.marathons.filter((x) => s.filterTab === 'all' || x.status === s.filterTab);
   const { rows, pager } = usePaged(list, s.filterTab, 12);
   const nm = s.newM;
+  // «Дублировать» нажимают и на карточке внизу списка — форма должна оказаться на виду.
+  const formRef = useRef<HTMLElement>(null);
+  const formKey = nm ? nm.fromId ?? 'new' : null;
+  useEffect(() => {
+    if (formKey) formRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [formKey]);
+  const fromName = nm?.fromId ? s.marathons.find((m) => m.id === nm.fromId)?.name : undefined;
+  const linkErr = nm?.touched ? channelLinkError(nm.channelLink) : '';
 
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 14 }}>
         <Segmented ariaLabel="Фильтр марафонов" value={s.filterTab} onChange={(id) => set({ filterTab: id })} options={TABS} />
         <div className="grow" />
-        <button type="button" className="btn-secondary" onClick={() => set({ newM: { name: '', start: '2026-12-01', end: '2026-12-30', err: '' } })}>
+        <button type="button" className="btn-secondary" onClick={() => openNewM()}>
           Новый пустой марафон
         </button>
       </div>
 
       {nm ? (
-        <div
-          className="card"
-          style={{ borderColor: 'var(--accent)', marginBottom: 14, display: 'grid', gridTemplateColumns: 'minmax(200px,2fr) repeat(2, minmax(130px,1fr)) auto', gap: 10, alignItems: 'end' }}
-        >
-          <label className="label">
-            <span className="label-text">Название</span>
-            <input
-              type="text"
-              className="input"
-              value={nm.name}
-              onChange={(e) => set({ newM: { ...nm, name: e.target.value, err: '' } })}
-              placeholder="Например: Рамазан 2027"
-            />
-          </label>
-          <label className="label">
-            <span className="label-text">Начало</span>
-            <input type="date" className="input" value={nm.start} onChange={(e) => set({ newM: { ...nm, start: e.target.value } })} />
-          </label>
-          <label className="label">
-            <span className="label-text">Конец</span>
-            <input type="date" className="input" value={nm.end} onChange={(e) => set({ newM: { ...nm, end: e.target.value } })} />
-          </label>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="btn-secondary" onClick={() => set({ newM: null })}>
-              Отмена
-            </button>
-            <button type="button" className="btn" onClick={createM}>
-              Создать черновик
-            </button>
-          </div>
-          {nm.err ? (
-            <div className="err-text" style={{ gridColumn: '1/-1', fontSize: 12.5 }}>
-              {nm.err}
+        <section ref={formRef} className="card new-m" aria-label={fromName ? 'Копия марафона' : 'Новый марафон'}>
+          <div>
+            <div className="h-card">{fromName ? `Копия марафона «${fromName}»` : 'Новый марафон'}</div>
+            <div className="hint">
+              {fromName
+                ? 'Намазы, свои темы и вопросы перенесутся. Участницы и канал — нет: у нового потока свой канал.'
+                : 'Темы добавите после создания. Канал отчётов нужен сразу — у каждого марафона свой.'}
             </div>
-          ) : null}
-        </div>
+          </div>
+
+          <div className="new-m-grid">
+            <label className="label">
+              <span className="label-text">Название</span>
+              <input
+                type="text"
+                className="input"
+                value={nm.name}
+                onChange={(e) => set({ newM: { ...nm, name: e.target.value, err: '' } })}
+                placeholder="Например: Рамазан 2027"
+              />
+            </label>
+            <label className="label">
+              <span className="label-text">Начало</span>
+              <input type="date" className="input" value={nm.start} onChange={(e) => set({ newM: { ...nm, start: e.target.value } })} />
+            </label>
+            <label className="label">
+              <span className="label-text">Конец</span>
+              <input type="date" className="input" value={nm.end} onChange={(e) => set({ newM: { ...nm, end: e.target.value } })} />
+            </label>
+          </div>
+
+          <div className="new-m-channel">
+            <label className="label">
+              <span className="label-text">
+                📺 Ссылка на канал отчётов <span className="req">обязательно</span>
+              </span>
+              <input
+                type="url"
+                inputMode="url"
+                className={'input mono' + (linkErr ? ' input-bad' : '')}
+                value={nm.channelLink}
+                onChange={(e) => set({ newM: { ...nm, channelLink: e.target.value, err: '' } })}
+                placeholder="https://t.me/+AbCdEf…"
+                aria-invalid={!!linkErr}
+                aria-describedby="new-m-channel-hint"
+              />
+            </label>
+            <div id="new-m-channel-hint" className="hint">
+              Закрытый Telegram-канал, куда бот будет выкладывать видеоотчёты участниц. Создайте новый канал для этого марафона и вставьте его ссылку.
+            </div>
+            {linkErr ? <div className="err-text">{linkErr}</div> : null}
+            <button
+              type="button"
+              className="btn-link"
+              aria-expanded={!!nm.guide}
+              onClick={() => set({ newM: { ...nm, guide: !nm.guide } })}
+            >
+              {nm.guide ? 'Скрыть инструкцию' : 'Как создать канал? — 1 минута'}
+            </button>
+            {nm.guide ? (
+              <div className="guide-box">
+                <CreateChannelSteps />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="new-m-foot">
+            <span className="hint" style={{ flex: '1 1 240px' }}>
+              Дальше: добавить бота в канал админом — покажем на следующем шаге.
+            </span>
+            <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+              <button type="button" className="btn-secondary" onClick={() => set({ newM: null })}>
+                Отмена
+              </button>
+              <button type="button" className="btn" onClick={createM}>
+                {fromName ? 'Создать копию' : 'Создать черновик'}
+              </button>
+            </div>
+          </div>
+          {nm.err && nm.err !== linkErr ? <div className="err-text">{nm.err}</div> : null}
+        </section>
       ) : null}
 
       {s.marathons.length === 0 ? (
         <EmptyState
           title="Марафонов пока нет"
           action={
-            <button type="button" className="btn" onClick={() => set({ newM: { name: '', start: '2026-12-01', end: '2026-12-30', err: '' } })}>
+            <button type="button" className="btn" onClick={() => openNewM()}>
               Создать марафон
             </button>
           }

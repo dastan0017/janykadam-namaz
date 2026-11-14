@@ -213,3 +213,119 @@ describe('справочники', () => {
     expect(Object.keys(res.json())).toContain('fajr');
   });
 });
+
+describe('канал отчётов', () => {
+  const CODE = 'test_channel_api';
+  const created: string[] = [];
+
+  afterAll(async () => {
+    if (created.length) await db.delete(schema.marathons).where(inArray(schema.marathons.id, created));
+  });
+
+  const body = (extra: Record<string, unknown> = {}) => ({
+    code: `${CODE}_${created.length}_${Date.now().toString(36).slice(-4)}`,
+    name: 'Тест канала',
+    startDate: '2027-01-10',
+    endDate: '2027-02-08',
+    ...extra,
+  });
+
+  it('марафон без ссылки на канал не создаётся', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const res = await app.inject({ method: 'POST', url: '/api/marathons', headers: { cookie }, payload: body() });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toBe('Вставьте ссылку на канал отчётов');
+  });
+
+  it('ссылка не на канал — понятная ошибка', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marathons',
+      headers: { cookie },
+      payload: body({ channelLink: 'https://t.me/janykadam_bot' }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('Это не ссылка на канал');
+  });
+
+  it('со ссылкой создаётся, но запуск ждёт бота в канале', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marathons',
+      headers: { cookie },
+      payload: body({ channelLink: 't.me/+AbCdEf123456' }),
+    });
+    expect(res.statusCode).toBe(201);
+    const m = res.json();
+    created.push(m.id);
+    expect(m.channelLink).toBe('https://t.me/+AbCdEf123456');
+    expect(m.channel).toMatchObject({ link: 'https://t.me/+AbCdEf123456', chatId: null, ready: false });
+
+    const v = await app.inject({ method: 'GET', url: `/api/marathons/${m.id}/validation`, headers: { cookie } });
+    expect(v.json().issues.map((i: { code: string }) => i.code)).toContain('channel_not_connected');
+
+    const launch = await app.inject({ method: 'POST', url: `/api/marathons/${m.id}/launch`, headers: { cookie } });
+    expect(launch.statusCode).toBe(400);
+
+    const st = await app.inject({ method: 'GET', url: `/api/marathons/${m.id}/channel`, headers: { cookie } });
+    expect(st.statusCode).toBe(200);
+    expect(st.json()).toMatchObject({ chatId: null, ready: false, counts: { total: 0 } });
+  });
+
+  it('копия марафона требует свой канал и не берёт чужой', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const src = await app.inject({
+      method: 'POST',
+      url: '/api/marathons',
+      headers: { cookie },
+      payload: body({ channelLink: 'https://t.me/+SourceHash12345' }),
+    });
+    const srcId = src.json().id;
+    created.push(srcId);
+    await db
+      .update(schema.marathons)
+      .set({ channelChatId: '-100999', channelTitle: 'Старый канал', channelInviteLink: 'https://t.me/+OldBotLink123' })
+      .where(eq(schema.marathons.id, srcId));
+
+    const noLink = await app.inject({ method: 'POST', url: `/api/marathons/${srcId}/duplicate`, headers: { cookie }, payload: {} });
+    expect(noLink.statusCode).toBe(400);
+
+    const dup = await app.inject({
+      method: 'POST',
+      url: `/api/marathons/${srcId}/duplicate`,
+      headers: { cookie },
+      payload: { name: 'Новый поток', channelLink: 'https://t.me/+NewHash1234567' },
+    });
+    expect(dup.statusCode).toBe(201);
+    const copy = dup.json();
+    created.push(copy.id);
+    expect(copy.name).toBe('Новый поток');
+    expect(copy.channelLink).toBe('https://t.me/+NewHash1234567');
+    expect(copy.channelChatId).toBeNull();
+    expect(copy.channelInviteLink).toBeNull();
+  });
+
+  it('подключённый канал не сменить правкой ссылки', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marathons',
+      headers: { cookie },
+      payload: body({ channelLink: 'https://t.me/+FirstHash12345' }),
+    });
+    const id = res.json().id;
+    created.push(id);
+    await db.update(schema.marathons).set({ channelChatId: '-100998' }).where(eq(schema.marathons.id, id));
+
+    const patch = await app.inject({
+      method: 'PATCH',
+      url: `/api/marathons/${id}`,
+      headers: { cookie },
+      payload: { channelLink: 'https://t.me/+OtherHash12345' },
+    });
+    expect(patch.statusCode).toBe(400);
+    expect(patch.body).toContain('отвяжите');
+  });
+});

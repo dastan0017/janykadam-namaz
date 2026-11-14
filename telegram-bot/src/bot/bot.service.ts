@@ -6,6 +6,7 @@ import { env } from '../config/env';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { matchLegacyMenu } from '../domain/menu';
 import { splitMessage } from '../domain/text';
+import { ChannelsService } from '../services/channels.service';
 import { ParticipantsService } from '../services/participants.service';
 import { SettingsService } from '../services/settings.service';
 import type { Update } from 'grammy/types';
@@ -30,6 +31,7 @@ export class BotService implements OnModuleDestroy {
     @Inject(DRIZZLE) private readonly db: Db,
     private readonly settings: SettingsService,
     private readonly participants: ParticipantsService,
+    private readonly channels: ChannelsService,
     private readonly registration: RegistrationFlow,
     private readonly report: ReportFlow,
     private readonly commands: CommandsFlow,
@@ -42,6 +44,14 @@ export class BotService implements OnModuleDestroy {
   private configure(): void {
     // Соблюдает retry_after при 429 — общий ограничитель на рассылки и напоминания.
     this.bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 60 }));
+
+    // Канал отчётов марафона: там бот админ. Апдейты оттуда разбираются до
+    // сессий — у канала нет диалога — и не выгоняют бота, как из групп.
+    // Посты в канале и прочее боту не адресованы: глотаем молча.
+    const channel = this.bot.filter((ctx) => ctx.chat?.type === 'channel');
+    channel.on('my_chat_member', (ctx) => this.onChannelMembership(ctx));
+    channel.on('chat_join_request', (ctx) => this.onJoinRequest(ctx));
+    channel.use(() => undefined);
 
     this.bot.use(
       session<SessionData, Ctx>({
@@ -136,6 +146,13 @@ export class BotService implements OnModuleDestroy {
 
   private async onChatMember(ctx: Ctx): Promise<void> {
     const status = ctx.myChatMember?.new_chat_member.status;
+
+    // Бота добавили в группу: там он не работает. Статус в чужом чате — не
+    // блокировка бота участницей, поэтому дальше идут только личные чаты.
+    if (ctx.chat?.type !== 'private') {
+      if (status === 'member' || status === 'administrator') await ctx.leaveChat().catch(() => {});
+      return;
+    }
     if (!ctx.from) return;
 
     const participant = await this.participants.byTgUserId(String(ctx.from.id));
@@ -143,6 +160,42 @@ export class BotService implements OnModuleDestroy {
 
     if (status === 'kicked') await this.participants.setBlocked(participant.id, true);
     else if (status === 'member') await this.participants.setBlocked(participant.id, false);
+  }
+
+  /** Бота добавили в канал, поменяли ему права или убрали. */
+  private async onChannelMembership(ctx: Ctx): Promise<void> {
+    const upd = ctx.myChatMember;
+    if (!upd || upd.chat.type !== 'channel') return;
+    await this.channels.onBotMembership(ctx.api, upd.chat, upd.new_chat_member, upd.from.id);
+  }
+
+  /**
+   * Заявка в канал марафона. Участницу марафона бот впускает, остальным
+   * отказывает и объясняет почему — пять минут после заявки ей можно написать,
+   * даже если бота она не запускала.
+   */
+  private async onJoinRequest(ctx: Ctx): Promise<void> {
+    const req = ctx.chatJoinRequest;
+    if (!req) return;
+
+    const d = await this.channels.joinDecision(String(req.chat.id), String(req.from.id), req.invite_link?.invite_link);
+    if (!d.act) return;
+
+    if (d.approve) {
+      try {
+        await ctx.api.approveChatJoinRequest(req.chat.id, req.from.id);
+      } catch (err) {
+        // Уже в канале — это тоже успех.
+        if (!(err instanceof GrammyError && /USER_ALREADY_PARTICIPANT/i.test(err.description))) throw err;
+      }
+      if (d.enrollmentId) await this.channels.markJoined(d.enrollmentId);
+      return;
+    }
+
+    await ctx.api.declineChatJoinRequest(req.chat.id, req.from.id);
+    await ctx.api
+      .sendMessage(req.user_chat_id, await this.settings.t('channel_join_declined', d.lang))
+      .catch(() => undefined);
   }
 
   private async onText(ctx: Ctx): Promise<void> {

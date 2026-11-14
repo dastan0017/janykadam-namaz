@@ -23,12 +23,20 @@ export interface Actions {
 
   // марафоны
   switchM: (id: string) => void;
+  /** Открывает форму нового марафона; с `fromId` — копии этого марафона. */
+  openNewM: (fromId?: string) => void;
   duplicate: (id: string) => void;
   createM: () => void;
   deleteM: (id: string) => void;
   copyLink: (id: string) => void;
   setM: <K extends keyof Marathon>(k: K, v: Marathon[K]) => void;
   launch: () => void;
+
+  // канал отчётов
+  loadChannel: (id: string) => Promise<void>;
+  saveChannelLink: (link: string) => Promise<boolean>;
+  connectChannel: (chatId: string) => void;
+  disconnectChannel: () => void;
 
   // темы
   setT: (k: string, v: unknown) => void;

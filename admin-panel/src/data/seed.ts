@@ -119,6 +119,16 @@ const marathonDefaults = {
   skipSubmitted: true,
   rulesKg: '',
   rulesRu: '',
+  channel: {
+    link: 'https://t.me/+DemoChannelHash1',
+    chatId: '-1001234567890',
+    title: 'Үммөттүн кызы — отчёттор',
+    inviteLink: 'https://t.me/+DemoBotJoinLink1',
+    rights: { admin: true, post: true, invite: true, restrict: true },
+    isPrivate: true,
+    protectedContent: true,
+    ready: true,
+  },
 };
 
 export function seed(): AppState {

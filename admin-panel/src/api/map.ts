@@ -1,11 +1,12 @@
 import { NAMAZ } from '../data/constants';
 import { localDate } from '../lib/time';
 import type {
-  AnswerOption, AuditEntry, Broadcast, BotSettings, BotText, LedgerEntry, Marathon, Me, PanelUser,
-  Participant, Question, Topic, ValidationIssue,
+  AnswerOption, AuditEntry, Broadcast, BotSettings, BotText, ChannelStatus, ChannelSummary, LedgerEntry, Marathon,
+  Me, PanelUser, Participant, Question, Topic, ValidationIssue,
 } from '../types';
 import type {
-  AdminUserDto, AuditEntryDto, BotSettingsDto, BotTextDto, BroadcastDto, LedgerEntryDto, MarathonDto, MeDto,
+  AdminUserDto, AuditEntryDto, BotSettingsDto, BotTextDto, BroadcastDto, ChannelStatusDto, ChannelSummaryDto,
+  LedgerEntryDto, MarathonDto, MeDto,
   NamazDto, OptionDto, ParticipantRowDto, PrayerPresetDto, PrayerTimesDto, QuestionDto, TopicDto,
   ValidationIssueDto,
 } from './dto';
@@ -50,6 +51,7 @@ export function toMarathon(dto: MarathonDto): Marathon {
     skipSubmitted: dto.skipSubmitted,
     rulesKg: dto.rulesKg ?? '',
     rulesRu: dto.rulesRu ?? '',
+    channel: toChannel(dto.channel, dto.channelLink),
     reported: dto.stats?.total,
     stats: dto.stats && {
       total: dto.stats.total,
@@ -60,6 +62,26 @@ export function toMarathon(dto: MarathonDto): Marathon {
     namazCount: dto.namazIds?.length,
     topicsCount: dto.topicsCount,
   };
+}
+
+const NO_RIGHTS = { admin: false, post: false, invite: false, restrict: false };
+
+/** Канал марафона; старый бэкенд без канала — пустая сводка. */
+export function toChannel(dto: ChannelSummaryDto | undefined, link?: string | null): ChannelSummary {
+  return {
+    link: dto?.link ?? link ?? '',
+    chatId: dto?.chatId ?? null,
+    title: dto?.title ?? '',
+    inviteLink: dto?.inviteLink ?? null,
+    rights: dto?.rights ?? NO_RIGHTS,
+    isPrivate: dto?.isPrivate ?? true,
+    protectedContent: dto?.protectedContent ?? false,
+    ready: dto?.ready ?? false,
+  };
+}
+
+export function toChannelStatus(dto: ChannelStatusDto): ChannelStatus {
+  return { ...toChannel(dto), counts: dto.counts, candidates: dto.candidates, checkedAt: dto.checkedAt };
 }
 
 /** Поля марафона в имена бэкенда — для PATCH. */

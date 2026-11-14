@@ -50,6 +50,13 @@
       "when": 1794647699469,
       "tag": "0006_remind_every_topic",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794655623855,
+      "tag": "0007_marathon_channel",
+      "breakpoints": true
     }
   ]
 }
