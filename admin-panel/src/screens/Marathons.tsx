@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { CreateChannelSteps } from '../components/ChannelGuide';
+import { ChannelLinkField, CreateChannelSteps } from '../components/ChannelGuide';
 import { ICONS } from '../data/constants';
-import { channelLinkError } from '../lib/channel';
 import { dateRu, plural } from '../lib/format';
 import { useActions, useAppState } from '../store/context';
 import type { MarathonStatus } from '../types';
@@ -30,7 +29,7 @@ export function Marathons() {
     if (formKey) formRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [formKey]);
   const fromName = nm?.fromId ? s.marathons.find((m) => m.id === nm.fromId)?.name : undefined;
-  const linkErr = nm?.touched ? channelLinkError(nm.channelLink) : '';
+  const linkBad = !!nm?.linkCheck && !nm.linkCheck.ok;
 
   return (
     <>
@@ -75,32 +74,24 @@ export function Marathons() {
           </div>
 
           <div className="new-m-channel">
-            <label className="label">
-              <span className="label-text">
-                📺 Ссылка на канал отчётов <span className="req">обязательно</span>
-              </span>
-              <input
-                type="url"
-                inputMode="url"
-                className={'input mono' + (linkErr ? ' input-bad' : '')}
-                value={nm.channelLink}
-                onChange={(e) => set({ newM: { ...nm, channelLink: e.target.value, err: '' } })}
-                placeholder="https://t.me/+AbCdEf…"
-                aria-invalid={!!linkErr}
-                aria-describedby="new-m-channel-hint"
-              />
-            </label>
-            <div id="new-m-channel-hint" className="hint">
-              Закрытый Telegram-канал, куда бот будет выкладывать видеоотчёты участниц. Создайте новый канал для этого марафона и вставьте его ссылку.
+            <ChannelLinkField
+              label="📺 Ссылка на канал отчётов"
+              required
+              value={nm.channelLink}
+              onChange={(v) => set({ newM: { ...nm, channelLink: v, err: '' } })}
+              onResult={(r) => set((prev) => ({ newM: prev.newM ? { ...prev.newM, linkCheck: r } : null }))}
+            />
+            <div className="hint">
+              Нужен именно <b>канал</b>, не группа: туда бот будет выкладывать видеоотчёты участниц. Для каждого марафона — новый канал. Панель
+              проверит ссылку и покажет название канала.
             </div>
-            {linkErr ? <div className="err-text">{linkErr}</div> : null}
             <button
               type="button"
               className="btn-link"
               aria-expanded={!!nm.guide}
               onClick={() => set({ newM: { ...nm, guide: !nm.guide } })}
             >
-              {nm.guide ? 'Скрыть инструкцию' : 'Как создать канал? — 1 минута'}
+              {nm.guide ? 'Скрыть инструкцию' : 'Как создать канал (не группу)? — 1 минута'}
             </button>
             {nm.guide ? (
               <div className="guide-box">
@@ -117,12 +108,12 @@ export function Marathons() {
               <button type="button" className="btn-secondary" onClick={() => set({ newM: null })}>
                 Отмена
               </button>
-              <button type="button" className="btn" onClick={createM}>
+              <button type="button" className="btn" onClick={createM} disabled={linkBad}>
                 {fromName ? 'Создать копию' : 'Создать черновик'}
               </button>
             </div>
           </div>
-          {nm.err && nm.err !== linkErr ? <div className="err-text">{nm.err}</div> : null}
+          {nm.err && nm.err !== nm.linkCheck?.message ? <div className="err-text">{nm.err}</div> : null}
         </section>
       ) : null}
 

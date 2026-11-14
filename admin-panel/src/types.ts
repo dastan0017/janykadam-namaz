@@ -203,6 +203,18 @@ export interface ChannelSummary {
   ready: boolean;
 }
 
+/** Проверка вставленной ссылки: канал ли это (по странице t.me). */
+export interface LinkCheck {
+  link: string | null;
+  kind: 'channel' | 'group' | 'missing' | 'other' | 'unknown' | 'invalid';
+  /** Можно сохранять: канал или «не удалось проверить». */
+  ok: boolean;
+  title?: string;
+  /** «2 subscribers» — как написал Telegram. */
+  extra?: string;
+  message: string;
+}
+
 /** Живое состояние канала со страницы «Канал отчётов». */
 export interface ChannelStatus extends ChannelSummary {
   counts: { total: number; invited: number; joined: number };
@@ -305,6 +317,8 @@ export interface NewMarathonState {
   guide?: boolean;
   /** Ошибки показываем после первой попытки создать. */
   touched?: boolean;
+  /** Последняя проверка ссылки: группа или мёртвая ссылка не дадут создать марафон. */
+  linkCheck?: LinkCheck | null;
   err: string;
 }
 

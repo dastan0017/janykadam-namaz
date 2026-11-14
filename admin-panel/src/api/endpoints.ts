@@ -4,6 +4,7 @@ import type {
   MarathonDto, MeDto, NamazDto, OverviewDto, ParticipantDetailDto, ParticipantRowDto, PrayerPresetDto,
   PrayerTimesDto, QuestionDto, QuestionTypeDto, Role, TelegramAuthPayload, TopicDto, ValidationDto,
 } from './dto';
+import type { LinkCheck } from '../types';
 
 /**
  * Все маршруты админ-API в одном месте, по одной функции на маршрут.
@@ -39,6 +40,8 @@ export const api = {
 
   /* ───────── канал отчётов ───────── */
 
+  /** Канал ли это вообще: группа и отозванная ссылка не годятся. */
+  checkChannelLink: (link: string) => request<LinkCheck>('/channel-link/check', { method: 'POST', body: { link } }),
   /** Живая проверка: бот в канале, права, запрет копирования. */
   channelStatus: (id: string) => request<ChannelStatusDto>(`/marathons/${id}/channel`),
   channelConnect: (id: string, chatId: string) =>

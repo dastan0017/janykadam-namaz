@@ -1359,3 +1359,229 @@ a.btn-secondary {
     gap: 8px;
   }
 }
+
+/* ───────── Канал, не группа · проверка ссылки · бот в канал ───────── */
+
+.cvg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.cvg-card {
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.cvg-card ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.cvg-yes {
+  background: var(--sage-panel);
+  border-color: var(--sage-bar);
+}
+.cvg-no {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+}
+.cvg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13.5px;
+}
+.cvg-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 11px;
+}
+.cvg-yes .cvg-mark {
+  background: var(--sage-text);
+}
+.cvg-no .cvg-mark {
+  background: var(--danger);
+}
+.cvg-en {
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.input-ok {
+  border-color: var(--sage) !important;
+}
+.link-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+.link-status .check-mark {
+  flex: none;
+}
+.link-status-busy {
+  align-items: center;
+  color: var(--muted);
+}
+.link-status-ok .check-mark {
+  background: var(--sage-text);
+}
+.link-status-bad {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+.link-status-bad .check-mark {
+  background: var(--danger);
+}
+
+.addbot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.addbot-way {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--shade);
+}
+.addbot-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+}
+.addbot-badge {
+  padding: 1px 9px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.note-warn {
+  padding: 9px 12px;
+  border-radius: var(--r-md);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--warn-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.bot-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding: 2px 4px 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--card);
+  border: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+/* Картинка прав администратора — как экран в Telegram */
+.rights-pic {
+  margin: 0;
+  max-width: 460px;
+  border-radius: var(--r-lg);
+  background: #17212b;
+  color: #e9edf1;
+  padding: 6px 0;
+  overflow: hidden;
+}
+.rights-pic-title {
+  padding: 8px 14px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6ab2f2;
+}
+.rights-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.55;
+}
+.rights-row.on {
+  opacity: 1;
+}
+.rights-name {
+  display: block;
+  font-size: 13px;
+}
+.rights-en {
+  display: block;
+  font-size: 11px;
+  color: #8a9aab;
+}
+.rights-why {
+  font-size: 11px;
+  color: #a8c7e6;
+  text-align: right;
+}
+.toggle {
+  width: 34px;
+  height: 20px;
+  border-radius: var(--r-pill);
+  background: #3b4652;
+  position: relative;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #cfd8e0;
+}
+.toggle.on {
+  background: #4fae4e;
+}
+.toggle.on::after {
+  left: 17px;
+  background: #fff;
+}
+
+@media (max-width: 760px) {
+  .cvg {
+    grid-template-columns: 1fr;
+  }
+  .rights-row {
+    grid-template-columns: minmax(0, 1fr) 38px;
+    grid-template-areas: 'name toggle' 'why toggle';
+    row-gap: 2px;
+  }
+  .rights-row > :first-child {
+    grid-area: name;
+  }
+  .rights-why {
+    grid-area: why;
+    text-align: left;
+  }
+  .rights-row .toggle {
+    grid-area: toggle;
+  }
+}

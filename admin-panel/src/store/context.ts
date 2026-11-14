@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { TelegramAuthPayload } from '../api/dto';
-import type { AppState, BotSettings, Marathon, Question, Role, Screen } from '../types';
+import type { AppState, BotSettings, LinkCheck, Marathon, Question, Role, Screen } from '../types';
 
 export type Patch = Partial<AppState>;
 export type Updater = (s: AppState) => Patch;
@@ -33,6 +33,8 @@ export interface Actions {
   launch: () => void;
 
   // канал отчётов
+  /** Проверка ссылки на канал; null — бэкенд не ответил. */
+  checkChannelLink: (link: string) => Promise<LinkCheck | null>;
   loadChannel: (id: string) => Promise<void>;
   saveChannelLink: (link: string) => Promise<boolean>;
   connectChannel: (chatId: string) => void;

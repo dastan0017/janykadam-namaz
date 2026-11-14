@@ -102,3 +102,45 @@ export const BOT_ADMIN_RIGHTS = ['post_messages', 'invite_users', 'restrict_memb
 
 /** Подпись под видеоотчётом: Telegram режет подписи длиннее 1024 символов. */
 export const CAPTION_LIMIT = 1024;
+
+/* ───────── что за ссылка: канал, группа или ничего ───────── */
+
+/**
+ * Что Telegram показывает по ссылке. Закрытую ссылку `t.me/+…` Bot API не
+ * откроет, а страница предпросмотра t.me — да: у канала «N subscribers» и
+ * кнопка «Join Channel», у группы «N members», у отозванной или удалённой —
+ * пустая заглушка «Join group chat on Telegram» без названия.
+ */
+export type LinkKind = 'channel' | 'group' | 'missing' | 'other' | 'unknown';
+
+export interface TmePreview {
+  kind: LinkKind;
+  title?: string;
+  /** «2 subscribers» — как написал Telegram. */
+  extra?: string;
+}
+
+const decode = (s: string) =>
+  s
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim();
+
+/** Разбирает HTML страницы t.me. Формат страницы чужой, поэтому «не понял» — это `unknown`, а не отказ. */
+export function classifyTmePage(html: string): TmePreview {
+  const extra = /class="tgme_page_extra"[^>]*>([^<]*)</.exec(html)?.[1];
+  const button = /class="tgme_action_button_new[^"]*"[^>]*>([^<]*)</.exec(html)?.[1] ?? '';
+  const ogTitle = /<meta property="og:title" content="([^"]*)"/.exec(html)?.[1];
+  const title = ogTitle ? decode(ogTitle) : undefined;
+  const ex = extra ? decode(extra) : undefined;
+
+  if ((ex && /subscriber|подписчик/i.test(ex)) || /join channel/i.test(button)) return { kind: 'channel', title, extra: ex };
+  if ((ex && /member|участник/i.test(ex)) || /join group/i.test(button)) return { kind: 'group', title, extra: ex };
+  // Заглушка без названия: ссылку отозвали, канал удалили или хэш выдуман.
+  if (/^Join group chat on Telegram$/i.test(title ?? '') && !ex) return { kind: 'missing' };
+  if (title && /tgme_page_title/.test(html)) return { kind: 'other', title, extra: ex };
+  return { kind: 'unknown' };
+}

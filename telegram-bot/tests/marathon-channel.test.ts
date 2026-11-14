@@ -2,12 +2,13 @@ import { eq } from 'drizzle-orm';
 import type { Update } from 'grammy/types';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { botChannels, enrollments, marathons, reports } from '../src/db/schema';
-import { linkMatchesChat, normalizeChannelLink, parseChannelLink, rightsOf } from '../src/domain/channel';
+import { classifyTmePage, linkMatchesChat, normalizeChannelLink, parseChannelLink, rightsOf } from '../src/domain/channel';
 import { validateMarathon, type MarathonInput } from '../src/domain/validation';
 import {
   callbackUpdate, enrollmentOf, insertReport, makeHarness, makeParticipant, marathonIdByCode, registerInBishkek,
   textUpdate, videoNoteUpdate, wipeParticipants, wipeTestParticipant, type Harness, type SentCall,
 } from './helpers/bot-harness';
+import { TME_CHANNEL, TME_GROUP, TME_MISSING } from './fixtures/tme-pages';
 
 /**
  * Канал отчётов марафона.
@@ -202,6 +203,24 @@ describe('ссылка на канал из панели', () => {
     expect(rightsOf({ status: 'administrator', can_post_messages: true })).toEqual({
       admin: true, post: true, invite: false, restrict: false,
     });
+  });
+});
+
+describe('канал или группа — по странице t.me', () => {
+  it('канал: подписчики и «Join Channel»', () => {
+    expect(classifyTmePage(TME_CHANNEL)).toEqual({ kind: 'channel', title: 'Үммөттүн кызы — отчеты', extra: '2 subscribers' });
+  });
+
+  it('группа: участники и «Join Group»', () => {
+    expect(classifyTmePage(TME_GROUP)).toMatchObject({ kind: 'group', title: 'Отчёты & разговоры' });
+  });
+
+  it('отозванная ссылка — заглушка без названия', () => {
+    expect(classifyTmePage(TME_MISSING)).toEqual({ kind: 'missing' });
+  });
+
+  it('незнакомая страница — «не знаю», а не отказ', () => {
+    expect(classifyTmePage('<html><body>что-то новое</body></html>')).toEqual({ kind: 'unknown' });
   });
 });
 

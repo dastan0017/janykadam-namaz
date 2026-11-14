@@ -13,6 +13,7 @@ import { NAMAZ_IDS } from '../../domain/namaz';
 import { hasBlockingErrors } from '../../domain/validation';
 import { toLocalDate } from '../../domain/windows';
 import { PlannerService } from '../../jobs/planner.service';
+import { ChannelLinkService } from '../../services/channel-link.service';
 import { ChannelError, ChannelsService } from '../../services/channels.service';
 import { ValidationService } from '../../services/validation.service';
 import { AuthService } from '../auth/auth.service';
@@ -69,6 +70,7 @@ export class MarathonsController {
     private readonly auth: AuthService,
     private readonly planner: PlannerService,
     private readonly channels: ChannelsService,
+    private readonly linkCheck: ChannelLinkService,
     private readonly bot: BotService,
   ) {}
 
@@ -89,9 +91,23 @@ export class MarathonsController {
     );
   }
 
+  /** Проверка ссылки, пока админ её вставляет: канал ли это и как называется. */
+  @Post('channel-link/check')
+  async checkLink(@Body() body: unknown) {
+    const { link } = z.object({ link: z.string() }).parse(body);
+    return this.linkCheck.check(link);
+  }
+
+  /** Группа или мёртвая ссылка — отказ с объяснением; «не удалось проверить» пропускаем. */
+  private async assertChannel(link: string): Promise<void> {
+    const res = await this.linkCheck.check(link);
+    if (!res.ok) throw new BadRequestException(res.message);
+  }
+
   @Post('marathons')
   async create(@Body() body: unknown, @Req() req: AuthedRequest) {
     const data = marathonBody.parse(body);
+    await this.assertChannel(data.channelLink);
     const [row] = await this.db.insert(marathons).values({ ...data, status: 'draft' }).returning();
     await this.auth.audit(req.admin ?? null, 'create', 'marathon', row.id, { code: row.code });
     // Бота могли добавить в канал ещё до создания марафона.
@@ -113,6 +129,7 @@ export class MarathonsController {
     if (data.channelLink !== undefined && current.channelChatId && data.channelLink !== current.channelLink) {
       throw new BadRequestException('Канал уже подключён. Чтобы сменить его, сначала отвяжите текущий на странице «Канал отчётов»');
     }
+    if (data.channelLink !== undefined && data.channelLink !== current.channelLink) await this.assertChannel(data.channelLink);
     const [row] = await this.db.update(marathons).set(data).where(eq(marathons.id, id)).returning();
     await this.auth.audit(req.admin ?? null, 'update', 'marathon', id, data as Record<string, unknown>);
     if (data.channelLink !== undefined) await this.tryAutoLink(id);
@@ -196,6 +213,7 @@ export class MarathonsController {
   async duplicate(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthedRequest) {
     const input = duplicateBody.parse(body ?? {});
     const src = await this.find(id);
+    await this.assertChannel(input.channelLink);
 
     const copy = await this.db.transaction(async (tx) => {
       const [created] = await tx

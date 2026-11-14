@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { CheckRow, CreateChannelSteps } from '../components/ChannelGuide';
+import { AddBotGuide, ChannelLinkField, CheckRow, CreateChannelSteps, LinkStatus } from '../components/ChannelGuide';
 import { addBotToChannelUrl, channelLinkError } from '../lib/channel';
 import { currentMarathon } from '../lib/derive';
+import { useLinkCheck } from '../lib/useLinkCheck';
 import { plural } from '../lib/format';
 import { useActions, useAppState } from '../store/context';
-import type { ChannelSummary } from '../types';
+import type { ChannelSummary, LinkCheck } from '../types';
 
 /** Пока канал не настроен, проверяем часто: админ как раз жмёт кнопки в Telegram. */
 const POLL_SETUP_MS = 4_000;
@@ -21,7 +22,7 @@ type StepState = 'done' | 'current' | 'todo';
  */
 export function Channel() {
   const s = useAppState();
-  const { loadChannel, saveChannelLink, connectChannel, disconnectChannel, go } = useActions();
+  const { loadChannel, saveChannelLink, connectChannel, disconnectChannel, go, toast } = useActions();
   const m = currentMarathon(s);
   const status = m ? s.channelStatus[m.id] : undefined;
   const ch: ChannelSummary | undefined = status ?? m?.channel;
@@ -30,6 +31,13 @@ export function Channel() {
   const [editing, setEditing] = useState(!m?.channel.link);
   const [touched, setTouched] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [linkRes, setLinkRes] = useState<LinkCheck | null>(null);
+
+  // Сохранённую ссылку тоже проверяем, пока бота в канале нет: вдруг это группа
+  // или ссылку отозвали — тогда шаг 1 не пройден, и кнопка «добавить бота»
+  // канала не покажет.
+  const savedLink = m?.channel.link ?? '';
+  const saved = useLinkCheck(savedLink, !!savedLink && !m?.channel.chatId && !editing);
 
   // Свежая функция загрузки без перезапуска опроса на каждом рендере.
   const load = useRef(loadChannel);
@@ -66,17 +74,23 @@ export function Channel() {
 
   const bot = s.bot.username;
   const finished = m.status === 'finished' || m.status === 'archive';
-  const s1 = !!ch.link;
   const s2 = !!ch.chatId;
+  const savedBad = !s2 && !!saved.res && !saved.res.ok;
+  const s1 = !!ch.link && !savedBad;
   const s3 = ch.ready;
   const stateOf = (done: boolean, prevDone: boolean): StepState => (done ? 'done' : prevDone ? 'current' : 'todo');
   const doneCount = [s1, s2, s3].filter(Boolean).length;
-  const linkErr = touched ? channelLinkError(link) : '';
+  const linkErr = touched ? channelLinkError(link) || (linkRes && !linkRes.ok ? linkRes.message : '') : '';
 
   const save = async () => {
     setTouched(true);
-    if (channelLinkError(link)) return;
+    if (channelLinkError(link) || (linkRes && !linkRes.ok)) return;
     if (await saveChannelLink(link)) setEditing(false);
+  };
+
+  const copyBot = () => {
+    void navigator.clipboard?.writeText(`@${bot}`).catch(() => {});
+    toast(`Скопировано: @${bot}`);
   };
 
   const recheck = async () => {
@@ -142,104 +156,68 @@ export function Channel() {
 
       <ol className="steps">
         {/* ───────── 1. канал ───────── */}
-        <Step n={1} state={stateOf(s1, true)} title="Создайте закрытый канал в Telegram">
+        <Step n={1} state={stateOf(s1, true)} title="Создайте закрытый канал в Telegram — канал, не группу">
           {editing ? (
             <>
-              {!s1 ? (
+              {!ch.link || savedBad ? (
                 <div className="guide-box">
                   <CreateChannelSteps />
                 </div>
               ) : null}
-              <label className="label">
-                <span className="label-text">Ссылка на канал</span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <input
-                    type="url"
-                    inputMode="url"
-                    className={'input mono' + (linkErr ? ' input-bad' : '')}
-                    style={{ flex: '1 1 260px' }}
-                    value={link}
-                    placeholder="https://t.me/+AbCdEf…"
-                    aria-invalid={!!linkErr}
-                    onChange={(e) => setLink(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void save();
+              <ChannelLinkField value={link} onChange={setLink} onEnter={() => void save()} onResult={setLinkRes} />
+              {linkErr && (!linkRes || linkRes.ok) ? <div className="err-text">{linkErr}</div> : null}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-sm" onClick={() => void save()} disabled={!!linkRes && !linkRes.ok}>
+                  Сохранить ссылку
+                </button>
+                {ch.link ? (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    onClick={() => {
+                      setLink(ch.link);
+                      setEditing(false);
+                      setTouched(false);
                     }}
-                  />
-                  <button type="button" className="btn btn-sm" onClick={() => void save()}>
-                    Сохранить ссылку
+                  >
+                    Отмена
                   </button>
-                  {s1 ? (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      onClick={() => {
-                        setLink(ch.link);
-                        setEditing(false);
-                        setTouched(false);
-                      }}
-                    >
-                      Отмена
-                    </button>
-                  ) : null}
-                </div>
-              </label>
-              {linkErr ? <div className="err-text">{linkErr}</div> : null}
+                ) : null}
+              </div>
             </>
           ) : (
-            <div className="step-line">
-              <span className="mono ellipsis" style={{ minWidth: 0 }}>
-                {ch.link}
-              </span>
-              {s2 ? (
-                <span className="hint-sm">Канал подключён — чтобы сменить его, сначала отвяжите.</span>
-              ) : (
-                <button type="button" className="btn-link" onClick={() => setEditing(true)}>
-                  Изменить
-                </button>
-              )}
-            </div>
+            <>
+              <div className="step-line">
+                <span className="mono ellipsis" style={{ minWidth: 0 }}>
+                  {ch.link}
+                </span>
+                {s2 ? (
+                  <span className="hint-sm">Канал подключён — чтобы сменить его, сначала отвяжите.</span>
+                ) : (
+                  <button type="button" className="btn-link" onClick={() => setEditing(true)}>
+                    {savedBad ? 'Вставить ссылку на канал' : 'Изменить'}
+                  </button>
+                )}
+              </div>
+              {!s2 ? <LinkStatus res={saved.res} busy={saved.busy} /> : null}
+              {savedBad ? (
+                <div className="guide-box">
+                  <CreateChannelSteps />
+                </div>
+              ) : null}
+            </>
           )}
         </Step>
 
         {/* ───────── 2. бот ───────── */}
-        <Step n={2} state={stateOf(s2, s1)} title="Добавьте бота в канал админом">
+        <Step n={2} state={stateOf(s2, s1)} title={`Добавьте бота @${bot || '…'} в канал администратором`}>
           {s2 ? (
             <div className="step-line">
               Бот в канале <b>«{ch.title || 'без названия'}»</b> — он уже написал туда первое сообщение.
             </div>
           ) : s1 ? (
             <>
-              {bot ? (
-                <a className="btn btn-big" href={addBotToChannelUrl(bot)} target="_blank" rel="noreferrer">
-                  Открыть Telegram и добавить @{bot}
-                </a>
-              ) : (
-                <div className="err-text">Имя бота неизвестно: бот ещё не запустился. Обновите страницу через минуту.</div>
-              )}
-              <ol className="guide-list">
-                <li>Telegram покажет ваши каналы — выберите тот, что создали на шаге 1.</li>
-                <li>
-                  Нужные права уже отмечены. Нажмите <b>«Сохранить»</b> или <b>«Готово»</b>.
-                </li>
-                <li>Вернитесь сюда — страница увидит бота сама.</li>
-              </ol>
-              <details className="guide-more">
-                <summary>Кнопка не открывается? Добавьте вручную</summary>
-                <ol className="guide-list">
-                  <li>Откройте канал и нажмите на его название.</li>
-                  <li>
-                    <b>✏️ Изменить</b> → <b>«Администраторы»</b> → <b>«Добавить администратора»</b>.
-                  </li>
-                  <li>
-                    В поиске наберите <span className="mono">@{bot || 'имя_бота'}</span> и выберите бота.
-                  </li>
-                  <li>Включите права: публиковать сообщения, приглашать подписчиков, удалять подписчиков.</li>
-                  <li>
-                    Нажмите <b>«Сохранить»</b>.
-                  </li>
-                </ol>
-              </details>
+              <AddBotGuide bot={bot} addUrl={bot ? addBotToChannelUrl(bot) : null} onCopy={copyBot} />
 
               {status?.candidates.length ? (
                 <div className="candidate-box">
@@ -258,7 +236,7 @@ export function Channel() {
               )}
             </>
           ) : (
-            <div className="hint">Сначала вставьте ссылку на канал.</div>
+            <div className="hint">Сначала вставьте ссылку на канал — именно канал, не группу.</div>
           )}
         </Step>
 

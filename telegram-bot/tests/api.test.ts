@@ -9,6 +9,8 @@ import { ApiModule } from '../src/api/api.module';
 import { DRIZZLE, DrizzleModule, PG_POOL, type Db } from '../src/db/drizzle.module';
 import * as schema from '../src/db/schema';
 import { signTelegramAuth } from '../src/domain/telegram-auth';
+import { ChannelLinkService } from '../src/services/channel-link.service';
+import { TME_CHANNEL, TME_GROUP, TME_MISSING } from './fixtures/tme-pages';
 
 /**
  * Админ-API на настоящей базе: вход через Telegram Login и разграничение ролей.
@@ -73,6 +75,10 @@ beforeAll(async () => {
     .overrideProvider(DRIZZLE)
     .useValue(db)
     .compile();
+
+  // В t.me не ходим: страницу предпросмотра выбираем по ссылке.
+  moduleRef.get(ChannelLinkService).fetchPage = async (url: string) =>
+    url.includes('Group') ? TME_GROUP : url.includes('Dead') ? TME_MISSING : TME_CHANNEL;
 
   app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
   await app.register(fastifyCookie, { secret: process.env.SESSION_SECRET });
@@ -247,6 +253,49 @@ describe('канал отчётов', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.body).toContain('Это не ссылка на канал');
+  });
+
+  it('ссылка на группу не принимается — нужен канал', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marathons',
+      headers: { cookie },
+      payload: body({ channelLink: 'https://t.me/+GroupHash123456' }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toContain('группа, а не канал');
+  });
+
+  it('отозванная ссылка не принимается', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/marathons',
+      headers: { cookie },
+      payload: body({ channelLink: 'https://t.me/+DeadHash1234567' }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().message).toContain('не открывается');
+  });
+
+  it('проверка ссылки на лету: канал с названием, группа с объяснением', async () => {
+    const cookie = await login(ADMIN_TG, 'test_admin_jk');
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/api/channel-link/check',
+      headers: { cookie },
+      payload: { link: 't.me/+ChanHash1234567' },
+    });
+    expect(ok.json()).toMatchObject({ ok: true, kind: 'channel', title: 'Үммөттүн кызы — отчеты', link: 'https://t.me/+ChanHash1234567' });
+
+    const group = await app.inject({
+      method: 'POST',
+      url: '/api/channel-link/check',
+      headers: { cookie },
+      payload: { link: 'https://t.me/+GroupHash123456' },
+    });
+    expect(group.json()).toMatchObject({ ok: false, kind: 'group', title: 'Отчёты & разговоры' });
   });
 
   it('со ссылкой создаётся, но запуск ждёт бота в канале', async () => {

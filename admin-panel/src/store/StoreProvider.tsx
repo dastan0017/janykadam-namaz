@@ -610,7 +610,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const nm = state.newM;
         if (!nm) return;
         const name = nm.name.trim();
-        const linkErr = channelLinkError(nm.channelLink);
+        // Группа или отозванная ссылка: сервер всё равно откажет, скажем сразу.
+        const linkErr = channelLinkError(nm.channelLink) || (nm.linkCheck && !nm.linkCheck.ok ? nm.linkCheck.message : '');
         if (!name || linkErr) {
           set({ newM: { ...nm, touched: true, err: !name ? 'Название обязательно' : linkErr } });
           return;
@@ -712,6 +713,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
 
       /* ───────── канал отчётов ───────── */
+
+      checkChannelLink: async (link) => {
+        try {
+          return await api.checkChannelLink(link);
+        } catch {
+          return null;
+        }
+      },
 
       loadChannel: async (id) => {
         try {
