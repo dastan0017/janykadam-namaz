@@ -14,6 +14,7 @@ import { JobsModule } from '../../src/jobs/jobs.module';
 import { PlannerService } from '../../src/jobs/planner.service';
 import { BroadcastService } from '../../src/services/broadcast.service';
 import { NotifyService } from '../../src/services/notify.service';
+import { SettingsService } from '../../src/services/settings.service';
 import { WorkersService } from '../../src/jobs/workers.service';
 import { ServicesModule } from '../../src/services/services.module';
 
@@ -57,6 +58,8 @@ export interface Harness {
   broadcasts: BroadcastWorker;
   broadcastSvc: BroadcastService;
   notify: NotifyService;
+  /** Настройки бота — тестам, которым нужен, например, свой лимит напоминаний. */
+  settings: SettingsService;
   /** Подмена ответов Telegram: 403, 429 и прочее. */
   setIntercept(fn: Intercept | undefined): void;
   /** Текст последнего отправленного сообщения. */
@@ -159,6 +162,7 @@ export async function makeHarness(): Promise<Harness> {
     broadcasts: moduleRef.get(BroadcastWorker),
     broadcastSvc: moduleRef.get(BroadcastService),
     notify: moduleRef.get(NotifyService),
+    settings: moduleRef.get(SettingsService),
     setIntercept: (fn) => {
       intercept = fn;
     },

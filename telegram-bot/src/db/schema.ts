@@ -365,7 +365,8 @@ export const botSettings = pgTable('bot_settings', {
   id: smallint('id').primaryKey().default(1),
   quietFrom: time('quiet_from').notNull().default('22:30'),
   quietTo: time('quiet_to').notNull().default('04:30'),
-  capPerDay: integer('cap_per_day').notNull().default(6),
+  /** Лимит напоминаний о темах в день; 0 — без лимита, о каждой теме. */
+  capPerDay: integer('cap_per_day').notNull().default(0),
   menu: jsonb('menu').$type<string[]>().notNull().default([]),
   commands: jsonb('commands').$type<{ command: string; description: string }[]>().notNull().default([]),
   description: text('description').notNull().default(''),

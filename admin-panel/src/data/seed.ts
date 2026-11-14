@@ -214,7 +214,7 @@ export function seed(): AppState {
       menu: ['🎥 Отчёт тапшыруу', '✅ Отчётторум', '🤲 Максаттарым', '😎 Өзүм жөнүндө', '🕐 Убакыт алкагы', '❓ Жардам'],
       quietFrom: '22:30',
       quietTo: '04:30',
-      capPerDay: 6,
+      capPerDay: 0,
     },
     botDraft: null,
     edit: null,

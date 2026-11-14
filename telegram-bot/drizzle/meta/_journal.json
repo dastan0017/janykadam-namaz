@@ -43,6 +43,13 @@
       "when": 1794327359574,
       "tag": "0005_marathon_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794647699469,
+      "tag": "0006_remind_every_topic",
+      "breakpoints": true
     }
   ]
 }

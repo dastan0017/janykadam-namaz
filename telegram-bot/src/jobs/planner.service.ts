@@ -3,9 +3,10 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { DateTime } from 'luxon';
 import { DRIZZLE, type Db } from '../db/drizzle.module';
 import { enrollments, marathons, participants } from '../db/schema';
-import { reminderInstant } from '../domain/reminders';
+import { reminderInstant, shiftOutOfQuiet } from '../domain/reminders';
 import { dayEvaluationAt, localDateShift, localTimeToInstant, parseHHMM, toLocalDate } from '../domain/windows';
 import { PrayerService } from '../services/prayer.service';
+import { SettingsService } from '../services/settings.service';
 import { TopicsService } from '../services/topics.service';
 import { BossService, QUEUE } from './boss.service';
 
@@ -42,6 +43,7 @@ export class PlannerService {
     private readonly boss: BossService,
     private readonly topics: TopicsService,
     private readonly prayer: PrayerService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Планирует день для всех, кому пора. Возвращает число запланированных записей. */
@@ -91,12 +93,18 @@ export class PlannerService {
     const boss = this.boss.instance;
     const { windowsForDay } = await import('../domain/windows');
     const windows = windowsForDay(enabled, dayKey, tz, lookup);
+    const { quietFrom, quietTo } = await this.settings.getSettings();
 
     for (const w of windows) {
       // Тахажуд планируем только согласившимся: окно внутри тихих часов.
       if (w.optIn && !participant.tahajjudReminders) continue;
 
-      const at = reminderInstant(w.opensAt, w.closesAt, w.remindOffsetMin);
+      let at = reminderInstant(w.opensAt, w.closesAt, w.remindOffsetMin);
+      // Тема открылась ночью, в тихие часы: напоминаем, как только они
+      // кончатся, — если окно к тому времени ещё открыто. Иначе о ней не
+      // напомнили бы вовсе. Тахажуд — по согласию, он тихие часы обходит.
+      if (!w.optIn) at = shiftOutOfQuiet(at, tz, quietFrom, quietTo);
+      if (at.getTime() >= w.closesAt.getTime()) continue;
       if (at.getTime() <= Date.now()) continue;
 
       const payload: TopicReminderJob = {

@@ -98,18 +98,13 @@ export class CommandsFlow {
       всего: asked,
     });
 
-    // По каждой теме: сдано, узур, открыто, ещё откроется или упущено.
+    // По каждой теме: значок состояния и окно целиком. Окно видно и у
+    // упущенных — иначе непонятно, когда её надо было сдать и что завтра.
     const lines = status.map(({ window: w, done, uzur }) => {
-      const icon = done
-        ? '✅'
-        : uzur
-          ? '🤍'
-          : now < w.opensAt
-            ? `🕒 ${this.hhmm(w.opensAt, tz)}`
-            : now < w.closesAt
-              ? `⏳ ${this.hhmm(w.closesAt, tz)}`
-              : '✖️';
-      return `${icon} ${w.emoji} ${this.name(w, ctx.lang)}`;
+      const icon = done ? '✅' : uzur ? '🤍' : now < w.opensAt ? '🕒' : now < w.closesAt ? '⏳' : '✖️';
+      const span = `${this.hhmm(w.opensAt, tz)}–${this.hhmm(w.closesAt, tz)}`;
+      // У своих тем эмодзи бывает пустым — без двойного пробела.
+      return [icon, span, w.emoji, this.name(w, ctx.lang)].filter(Boolean).join(' ');
     });
 
     await ctx.reply(`${summary}\n\n${lines.join('\n')}`);

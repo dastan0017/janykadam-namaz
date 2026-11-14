@@ -30,7 +30,7 @@ export function initialState(): AppState {
       menu: [],
       quietFrom: '22:30',
       quietTo: '04:30',
-      capPerDay: 6,
+      capPerDay: 0,
     },
     botDraft: null,
     edit: null,

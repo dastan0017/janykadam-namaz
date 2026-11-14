@@ -240,8 +240,13 @@ describe('команды', () => {
     await h.feed(textUpdate('/ball', AT_0940_BISHKEK));
     const text = h.texts().join('\n');
     expect(text).toMatch(/Баллдар|Баллы/);
-    // Багымдат в 09:40 упущен, Пешим ещё впереди.
-    expect(text).toMatch(/✖️|🕒|⏳|✅/);
+
+    // У каждой темы окно целиком — и у упущенных тоже: Багымдат в 09:40 уже
+    // закрыт, но видно, когда его надо было сдать.
+    const lines = text.split('\n').filter((l) => /^(✅|🤍|🕒|⏳|✖️)/.test(l));
+    expect(lines.length).toBeGreaterThan(3);
+    for (const l of lines) expect(l, l).toMatch(/\d{2}:\d{2}–\d{2}:\d{2}/);
+    expect(lines.find((l) => l.includes('Багымдат'))).toMatch(/^✖️ \d{2}:\d{2}–\d{2}:\d{2}/);
   });
 
   it('/tahajjud переключает напоминания', async () => {

@@ -59,8 +59,9 @@ export interface ReminderCheck {
   alreadyReported: boolean;
   windowClosed: boolean;
   quiet: boolean;
-  /** Сколько напоминаний уже ушло сегодня. */
+  /** Сколько напоминаний о темах уже ушло сегодня. */
   sentToday: number;
+  /** Лимит напоминаний о темах в день; 0 — без лимита. */
   capPerDay: number;
   /** Тема требует согласия (Тахажуд). */
   optIn: boolean;
@@ -90,6 +91,7 @@ export function decideReminder(c: ReminderCheck): ReminderDecision {
   }
 
   if (c.quiet) return { send: false, reason: 'quiet' };
-  if (c.sentToday >= c.capPerDay) return { send: false, reason: 'cap' };
+  // По умолчанию лимита нет: напоминание приходит при открытии каждой темы.
+  if (c.capPerDay > 0 && c.sentToday >= c.capPerDay) return { send: false, reason: 'cap' };
   return { send: true };
 }

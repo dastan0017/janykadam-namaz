@@ -64,7 +64,7 @@ export class SettingsService implements OnModuleInit {
     this.settings = {
       quietFrom: row?.quietFrom ?? '22:30',
       quietTo: row?.quietTo ?? '04:30',
-      capPerDay: row?.capPerDay ?? 6,
+      capPerDay: row?.capPerDay ?? 0,
       menu: row?.menu ?? [],
       commands: row?.commands ?? [],
       description: row?.description ?? '',

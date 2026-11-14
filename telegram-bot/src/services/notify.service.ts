@@ -156,11 +156,22 @@ export class NotifyService {
   }
 
   /** Сколько напоминаний уже ушло этой участнице за день — для дневного лимита. */
+  /**
+   * Сколько напоминаний о темах ушло за день. Утреннее, вечернее и отметка
+   * об оценке дня лежат в том же журнале, но в лимит не входят: раньше они
+   * съедали его, и до тем напоминаний доходило меньше, чем стоял лимит.
+   */
   async sentToday(enrollmentId: string, dayKey: string): Promise<number> {
     const rows = await this.db
       .select({ id: remindersLog.id })
       .from(remindersLog)
-      .where(and(eq(remindersLog.enrollmentId, enrollmentId), eq(remindersLog.dayKey, dayKey)));
+      .where(
+        and(
+          eq(remindersLog.enrollmentId, enrollmentId),
+          eq(remindersLog.dayKey, dayKey),
+          eq(remindersLog.kind, 'topic'),
+        ),
+      );
     return rows.length;
   }
 

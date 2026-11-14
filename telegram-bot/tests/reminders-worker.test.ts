@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { enrollments, participants, remindersLog } from '../src/db/schema';
+import { botSettings, enrollments, participants, remindersLog } from '../src/db/schema';
 import type { TopicReminderJob } from '../src/jobs/planner.service';
 import {
   BISHKEK, insertReport, makeHarness, makeParticipant, remindersCount,
@@ -166,7 +166,11 @@ describe('напоминание не уходит', () => {
   it('дневной лимит исчерпан', async () => {
     const made = await given(AT_1300);
 
-    // Шесть сообщений за этот день уже ушло — это и есть предел из настроек.
+    // По умолчанию лимита нет; здесь его ставит админ — шесть в день.
+    await h.db.update(botSettings).set({ capPerDay: 6 }).where(eq(botSettings.id, 1));
+    h.settings.invalidate();
+
+    // Шесть напоминаний о темах за этот день уже ушло — это и есть предел.
     await h.db.insert(remindersLog).values(
       [1, 2, 3, 4, 5, 6].map((n) => ({
         enrollmentId: made.enrollmentId,
@@ -176,8 +180,13 @@ describe('напоминание не уходит', () => {
       })),
     );
 
-    await h.workers.sendTopicReminder(job(made, PESHIM));
-    expect(h.texts()).toHaveLength(0);
+    try {
+      await h.workers.sendTopicReminder(job(made, PESHIM));
+      expect(h.texts()).toHaveLength(0);
+    } finally {
+      await h.db.update(botSettings).set({ capPerDay: 0 }).where(eq(botSettings.id, 1));
+      h.settings.invalidate();
+    }
   });
 
   it('тему убрали из марафона, пока задание ждало', async () => {

@@ -111,6 +111,14 @@ export function validate(s: AppState): ValidationIssue[] {
   // Пересечение окон — не ошибка: «Зикир» на весь день идёт поверх намазов,
   // а отчёт участница сдаёт по каждой теме отдельно, кнопкой с её id.
 
+  // Лимит меньше числа тем — часть напоминаний молча не придёт.
+  // Тахажуд не в счёт: о нём напоминают только по согласию.
+  const cap = s.bot.capPerDay;
+  const reminded = activeTopics(s).filter((t) => t.id !== 't1').length;
+  if (cap > 0 && reminded > cap) {
+    W(`Тем с напоминаниями ${reminded}, а лимит в день — ${cap}: о ${reminded - cap} ${plural(reminded - cap, 'теме', 'темах', 'темах')} не напомнят`, 'bot');
+  }
+
   if (m) {
     if (m.status === 'draft' && m.start < localDate(FALLBACK_TZ)) E(`Дата начала ${m.start} уже прошла`, 'settings');
     if (m.end < m.start) E('Дата окончания раньше начала', 'settings');

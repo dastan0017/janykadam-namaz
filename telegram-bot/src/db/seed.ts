@@ -96,7 +96,7 @@ async function main(): Promise<void> {
       id: 1,
       quietFrom: '22:30',
       quietTo: '04:30',
-      capPerDay: 6,
+      capPerDay: 0,
       menu: MENU_KG,
       commands: COMMANDS,
       description: 'Жаңы Кадам жамаатынын марафон боту. Күн сайын видеокружок менен отчёт тапшырыңыз.',

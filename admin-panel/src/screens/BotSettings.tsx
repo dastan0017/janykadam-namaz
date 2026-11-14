@@ -112,11 +112,14 @@ export function BotSettings() {
         <Field label="Тихие часы с">
           <input type="time" className="input" value={bot.quietFrom} onChange={(e) => setBot({ quietFrom: e.target.value })} />
         </Field>
-        <Field label="до" hint="Окно «Тахажуд» открывается ночью и попадает в тихие часы — напоминание о нём уйдёт только тем, кто включила его сама.">
+        <Field label="до" hint="Если тема открылась в тихие часы, напоминание придёт, как только они кончатся. Тахажуд — только тем, кто включила его сама.">
           <input type="time" className="input" value={bot.quietTo} onChange={(e) => setBot({ quietTo: e.target.value })} />
         </Field>
-        <Field label="Не больше напоминаний в день" hint="Сверх лимита напоминания склеиваются в одно вечернее. Рассылки в лимит не входят.">
-          <input type="number" className="input" value={bot.capPerDay} onChange={(e) => setBot({ capPerDay: Number(e.target.value) })} />
+        <Field
+          label="Лимит напоминаний о темах в день"
+          hint="0 — без лимита: напоминание приходит при открытии каждой темы. Утреннее, вечернее и рассылки в лимит не входят."
+        >
+          <input type="number" min={0} className="input" value={bot.capPerDay} onChange={(e) => setBot({ capPerDay: Math.max(0, Number(e.target.value) || 0) })} />
         </Field>
       </section>
     </div>
