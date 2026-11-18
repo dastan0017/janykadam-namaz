@@ -234,7 +234,8 @@ export function seed(): AppState {
     pvLang: 'kg',
     pvDone: false,
     tzView: 'Asia/Bishkek',
-    pf: { q: '', status: 'all', tz: 'all', act: 'all', sort: 'name', dir: 1, sel: [] },
+    // Таблица участниц открывается на активных — вкладка «Все» рядом.
+    pf: { q: '', status: 'active', tz: 'all', act: 'all', sort: 'name', dir: 1, sel: [] },
     drawerId: null,
     pointsModal: null,
     confirm: null,

@@ -101,6 +101,8 @@ export function Field({
 export interface SegmentOption<T extends string> {
   id: T;
   label: string;
+  /** Сколько записей во вкладке — серым числом после надписи. */
+  count?: number;
 }
 
 export function Segmented<T extends string>({
@@ -121,6 +123,7 @@ export function Segmented<T extends string>({
       {options.map((o) => (
         <button key={o.id} type="button" aria-pressed={value === o.id} onClick={() => onChange(o.id)}>
           {o.label}
+          {o.count !== undefined ? <span className="seg-count">{o.count}</span> : null}
         </button>
       ))}
     </div>

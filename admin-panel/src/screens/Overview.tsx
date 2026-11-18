@@ -17,7 +17,9 @@ export function Overview() {
   const isDraft = !!m && (m.status === 'draft' || m.status === 'recruiting');
 
   /** Каждое число ведёт в отфильтрованный список за ним. */
-  const goParts = (act: AppState['pf']['act']) => set((prev) => ({ screen: 'participants', pf: { ...prev.pf, act, status: 'all', tz: 'all', q: '' } }));
+  // Числа на карточках — про активных; «Новые сегодня» — про всех, кто пришёл.
+  const goParts = (act: AppState['pf']['act']) =>
+    set((prev) => ({ screen: 'participants', pf: { ...prev.pf, act, status: act === 'new' ? 'all' : 'active', tz: 'all', q: '' } }));
 
   const trend = [...(d.trend ?? []), ...(m?.status === 'running' ? [st.pct] : [])];
   const act = d.participants.filter((p) => p.status === 'active');

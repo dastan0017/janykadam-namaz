@@ -1,4 +1,4 @@
-import { Pager, ParticipantPill } from '../components/ui';
+import { Pager, ParticipantPill, Segmented } from '../components/ui';
 import { usePaged } from '../lib/paged';
 import { TZ, TZ_ORDER } from '../data/constants';
 import { NEVER_REPORTED } from '../api/map';
@@ -9,6 +9,15 @@ import type { ParticipantStatus, TzKey } from '../types';
 
 const COLS = '28px minmax(180px,1.6fr) 130px 90px 70px 60px 110px';
 
+/** Вкладки статуса. Открывается на активных: вышедшие и завершившие мешали работать с теми, кто идёт. */
+const STATUS_TABS: { id: ParticipantStatus | 'all'; label: string }[] = [
+  { id: 'active', label: 'Активные' },
+  { id: 'paused', label: 'На паузе' },
+  { id: 'left', label: 'Вышли' },
+  { id: 'finished', label: 'Завершили' },
+  { id: 'all', label: 'Все' },
+];
+
 export function Participants({ isMobile }: { isMobile: boolean }) {
   const s = useAppState();
   const { set, setPf, sortBy, toggleSel, selAll, bulk, exportCsv } = useActions();
@@ -16,7 +25,14 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
   const total = currentData(s).participants.length;
   const m = currentMarathon(s);
   const selN = s.pf.sel.length;
-  const hasFilters = !!(s.pf.q || s.pf.status !== 'all' || s.pf.tz !== 'all' || s.pf.act !== 'all');
+  // Вкладка статуса — не фильтр: «сбросить» её не трогает.
+  const hasFilters = !!(s.pf.q || s.pf.tz !== 'all' || s.pf.act !== 'all');
+  const all = currentData(s).participants;
+  const tabs = STATUS_TABS.map((t) => ({
+    ...t,
+    count: t.id === 'all' ? all.length : all.filter((p) => p.status === t.id).length,
+  }));
+  const tabLabel = STATUS_TABS.find((t) => t.id === s.pf.status)?.label ?? '';
   // Страница сбрасывается, когда меняются фильтры или сортировка: список другой.
   const { rows, pager } = usePaged(list, `${s.mid}|${s.pf.q}|${s.pf.status}|${s.pf.tz}|${s.pf.act}|${s.pf.sort}|${s.pf.dir}`);
 
@@ -24,6 +40,15 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
 
   return (
     <>
+      <div style={{ marginBottom: 12 }}>
+        <Segmented
+          ariaLabel="Статус участниц"
+          value={s.pf.status}
+          onChange={(id) => set((prev) => ({ pf: { ...prev.pf, status: id, sel: [] } }))}
+          options={tabs}
+        />
+      </div>
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 10 }}>
         <input
           type="search"
@@ -34,13 +59,6 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
           aria-label="Поиск участниц"
           placeholder="Имя или @username"
         />
-        <select className="select select-pill" style={{ width: 'auto' }} value={s.pf.status} onChange={(e) => setPf('status', e.target.value as ParticipantStatus | 'all')} aria-label="Статус">
-          <option value="all">Любой статус</option>
-          <option value="active">Активна</option>
-          <option value="paused">Пауза</option>
-          <option value="left">Вышла</option>
-          <option value="finished">Завершила</option>
-        </select>
         <select className="select select-pill" style={{ width: 'auto' }} value={s.pf.tz} onChange={(e) => setPf('tz', e.target.value as TzKey | 'all')} aria-label="Часовой пояс">
           <option value="all">Все пояса</option>
           {TZ_ORDER.map((k) => (
@@ -57,7 +75,7 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
           <option value="new">Новые сегодня</option>
         </select>
         {hasFilters ? (
-          <button type="button" className="btn-link" onClick={() => set({ pf: { q: '', status: 'all', tz: 'all', act: 'all', sort: 'name', dir: 1, sel: [] } })}>
+          <button type="button" className="btn-link" onClick={() => set((prev) => ({ pf: { ...prev.pf, q: '', tz: 'all', act: 'all', sel: [] } }))}>
             сбросить
           </button>
         ) : null}
@@ -88,7 +106,7 @@ export function Participants({ isMobile }: { isMobile: boolean }) {
 
       {list.length === 0 ? (
         <div className="empty">
-          {hasFilters ? 'Никто не подходит под фильтры.' : null}
+          {hasFilters ? 'Никто не подходит под фильтры.' : total > 0 ? `Во вкладке «${tabLabel}» пока никого.` : null}
           {total === 0 ? (
             <>
               Участниц пока нет. Они появятся, когда перейдут по ссылке <span className="mono">t.me/{s.bot.username}?start={m?.code}</span> и нажмут «Старт» — бот не может написать первым.
