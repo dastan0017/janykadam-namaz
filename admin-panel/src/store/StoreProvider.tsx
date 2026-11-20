@@ -171,7 +171,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const bootstrap = useCallback(async () => {
     // Разработка без бэкенда: панель работает на фикстурах и ничего не сохраняет.
     if (USE_SEED) {
-      setState(seed());
+      const demo = seed();
+      // Демо тоже открывается по адресу: прямая ссылка ведёт на нужный экран.
+      const path = window.location.pathname;
+      const nav = path === '/' ? {} : navOf(parseRoute(path, window.location.search), demo.marathons, demo.mid);
+      setState({ ...demo, ...nav });
       return;
     }
     try {
@@ -715,6 +719,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       /* ───────── канал отчётов ───────── */
 
       checkChannelLink: async (link) => {
+        // Демо без бэкенда: ссылка считается каналом, чтобы показать, как выглядит проверка.
+        if (USE_SEED) {
+          return { link: normalizeChannelLink(link), kind: 'channel', ok: true, title: 'Кыш марафону — отчёттор', extra: '1 subscriber', message: '' };
+        }
         try {
           return await api.checkChannelLink(link);
         } catch {

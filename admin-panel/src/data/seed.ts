@@ -1,7 +1,7 @@
 import type { AppState, Participant, ParticipantStatus, Topic, TzKey } from '../types';
 import { setPrayerPresets } from './constants';
 import { initialState } from './initial';
-import { localDate } from '../lib/time';
+import { localDate, shiftDay } from '../lib/time';
 
 /**
  * Фикстуры для разработки без бэкенда (`VITE_USE_SEED=true`).
@@ -10,6 +10,11 @@ import { localDate } from '../lib/time';
 
 /** Сегодня по Бишкеку — «новые сегодня» в фикстурах должны оставаться новыми. */
 const TODAY = localDate('Asia/Bishkek');
+/** Демо-марафон всегда идёт двадцатый день из тридцати — какой бы ни была дата. */
+const M5_START = shiftDay(TODAY, -19);
+const M5_END = shiftDay(M5_START, 29);
+/** Черновик — следующий поток, через пару недель. */
+const M6_START = shiftDay(TODAY, 12);
 
 /** Время намазов прототипа: с бэкендом его отдаёт `/api/prayer/presets`. */
 const SEED_PRESETS = [
@@ -49,7 +54,7 @@ const participant = (
   last: number,
   today: string[],
   extra: Partial<Participant> = {},
-): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: '2026-10-20', d7: true, goal: '', rulesAt: '2026-10-20', ...extra });
+): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: M5_START, d7: true, goal: '', rulesAt: M5_START, ...extra });
 
 /** Свои темы марафона. Намазы (t1–t6, t11) — в фиксированной библиотеке NAMAZ. */
 const topics5 = (): Topic[] => [
@@ -148,8 +153,20 @@ export function seed(): AppState {
     navOpen: false,
     marathons: [
       { id: 'm4', code: 'm4', name: 'Рамазан 2026', status: 'finished', start: '2026-02-18', end: '2026-03-19', regOpen: false, reported: 412, ...marathonDefaults },
-      { id: 'm5', code: 'm5', name: 'Үммөттүн кызы', status: 'running', start: '2026-10-20', end: '2026-11-18', regOpen: true, ...marathonDefaults },
-      { id: 'm6', code: 'm6', name: 'Кыш марафону', status: 'draft', start: '2026-11-01', end: '2026-11-30', regOpen: true, ...marathonDefaults },
+      { id: 'm5', code: 'm5', name: 'Үммөттүн кызы', status: 'running', start: M5_START, end: M5_END, regOpen: true, ...marathonDefaults },
+      {
+        id: 'm6', code: 'm6', name: 'Кыш марафону', status: 'draft', start: M6_START, end: shiftDay(M6_START, 29), regOpen: true, ...marathonDefaults,
+        // Черновик: канал создан, бота в него ещё не добавили — видны шаги настройки.
+        channel: {
+          ...marathonDefaults.channel,
+          link: 'https://t.me/+DemoKyshChannel1',
+          chatId: null,
+          title: '',
+          inviteLink: null,
+          rights: { admin: false, post: false, invite: false, restrict: false },
+          ready: false,
+        },
+      },
     ],
     data: {
       m4: {

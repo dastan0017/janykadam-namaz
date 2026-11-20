@@ -1,6 +1,7 @@
 import { ICONS, STATUS } from '../data/constants';
 import { currentMarathon, isCurator, validate } from '../lib/derive';
 import { dateRu } from '../lib/format';
+import { dayCount, dayNumber } from '../lib/time';
 import { useActions, useAppState } from '../store/context';
 import type { Screen } from '../types';
 import { Icon, StatusPill } from './ui';
@@ -104,7 +105,7 @@ export function Sidebar() {
               </select>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 {dateRu(m.start)} — {dateRu(m.end)}
-                {m.status === 'running' ? ' · день 20 из 30' : ''}
+                {m.status === 'running' ? ` · день ${dayNumber(m.start)} из ${dayCount(m.start, m.end)}` : ''}
               </div>
             </div>
             <div className="nav-group">

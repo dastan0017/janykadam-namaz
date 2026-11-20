@@ -15,7 +15,7 @@ Suffix List — для браузера `panel.duckdns.org` и `api.duckdns.org`
 1. **VPS.** InterServer, один слайс: 1 ядро, 2 ГБ, 40 ГБ SSD, $3/мес. Образ —
    Ubuntu 24.04. Для начала хватит одного слайса; если база разрастётся, два.
 2. **Домен.** Уже заведён: `janykadam.duckdns.org` на
-   [duckdns.org](https://www.duckdns.org), аккаунт владельца проекта.
+   [duckdns.org](https://www.duckdns.org), в аккаунте владельца проекта.
    Когда появится VPS — вписать его адрес в поле `current ip` и нажать
    `update ip`. TTL записи 60 секунд, так что новый адрес расходится за минуту.
    Токен DuckDNS в развёртывании не нужен: у VPS адрес постоянный, и
@@ -29,7 +29,7 @@ Suffix List — для браузера `panel.duckdns.org` и `api.duckdns.org`
 Всё дальше — по SSH, от root. Забрать код:
 
 ```bash
-apt-get update -qq && apt-get install -y -qq git && git clone <адрес репозитория> /opt/janykadam
+apt-get update -qq && apt-get install -y -qq git && git clone https://github.com/dastan0017/janykadam-namaz.git /opt/janykadam
 ```
 
 Дальше всё делает [`bootstrap.sh`](bootstrap.sh) — он ставит пакеты, закрывает
@@ -154,7 +154,9 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db ps
 
 ## Что открыто наружу
 
-Только 80 и 443. База и бот порты не публикуют — к ним ходят внутри сети
+Только 80 и 443. Исходящие соединения нужны два: `api.telegram.org` (Bot API
+и скачивание кружков для канала отчётов) и `t.me` (проверка, что ссылка в
+панели ведёт в канал, а не в группу). База и бот порты не публикуют — к ним ходят внутри сети
 compose. Swagger на `/api/docs` в проде выключен: он открыт без входа и
 показывал бы всю поверхность админ-API. Включается `ENABLE_DOCS=true`, если
 понадобится.
@@ -173,3 +175,8 @@ compose. Swagger на `/api/docs` в проде выключен: он откр�
 
 **Бот не отвечает.** `logs app` покажет, зарегистрировался ли вебхук. Частая
 причина — `PUBLIC_URL` не совпадает с доменом, на котором висит Caddy.
+
+**Отчёты не появляются в канале.** Откройте в панели «Канал отчётов»: страница
+покажет, есть ли бот в канале и хватает ли ему прав. Очередь публикации
+видна в логах: `logs app | grep -i канал`. Отчёты, сданные до подключения
+канала, туда не попадают.
