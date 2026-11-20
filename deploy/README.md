@@ -1,5 +1,9 @@
 # Развёртывание
 
+Прод: **https://janykadam.duckdns.org** — панель, API и вебхук бота
+[@JanykadamBot](https://t.me/JanykadamBot); проверка —
+https://janykadam.duckdns.org/healthz.
+
 Панель, API и база на одном сервере. Caddy отдаёт панель и проксирует `/api`,
 `/telegram` и `/healthz` в бота, сертификат берёт сам.
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataCheckString, signTelegramAuth, verifyTelegramAuth } from '../src/domain/telegram-auth';
 
-const TOKEN = '123456:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw';
+// Заведомо ненастоящий токен: подпись проверяется тем же значением, им и подписана.
+// Похожий на настоящий токен-пример из документации Telegram ловил сканер секретов GitHub.
+const TOKEN = '123456:TEST_TOKEN_PLACEHOLDER_FOR_LOCAL_DEV';
 
 function payload(overrides: Record<string, unknown> = {}) {
   const base = {
