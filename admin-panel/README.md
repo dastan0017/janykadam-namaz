@@ -1,6 +1,8 @@
 # Janykadam — панель марафонов
 
-Админ-панель бота [janykadam](../telegram-bot): марафоны, темы, участницы,
+Прод: **https://janykadam.duckdns.org** (вход через Telegram).
+
+Админ-панель бота [@JanykadamBot](https://t.me/JanykadamBot): марафоны, темы, участницы,
 канал отчётов, рассылки, тексты бота. React 19, TypeScript, Vite. Сборка —
 статика, её можно положить на любой хостинг.
 

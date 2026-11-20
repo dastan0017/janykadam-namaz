@@ -2,13 +2,17 @@
 
 Бот 30-дневных марафонов сообщества Janykadam и API для
 [админ-панели](../admin-panel). Node 22, TypeScript, NestJS на Fastify-адаптере,
-PostgreSQL 16 через Drizzle, очереди на pg-boss.
+grammY, PostgreSQL 16 через Drizzle, очереди на pg-boss.
+
+В проде: бот **[@JanykadamBot](https://t.me/JanykadamBot)** в режиме вебхука,
+панель и API — **https://janykadam.duckdns.org**, проверка —
+https://janykadam.duckdns.org/healthz.
 
 ## Главный факт
 
 **Один бот обслуживает все марафоны.** Отсюда почти всё устройство:
 
-- вход только по deep link с кодом марафона — `t.me/<бот>?start=<код>`;
+- вход только по deep link с кодом марафона — `t.me/JanykadamBot?start=<код>`;
   бот не может написать первым;
 - имя, описание, команды и аватар бота общие, их нельзя развести по марафонам;
 - тихие часы и лимит напоминаний в день тоже общие: чат у участницы один.
@@ -65,7 +69,7 @@ Telegram. Поэтому:
    принимает только канал («subscribers», «Join Channel»). Группа и отозванная
    ссылка отклоняются; если t.me не ответил, ссылка проходит.
 2. Админ добавляет бота в канал администратором — кнопкой
-   `t.me/<бот>?startchannel&admin=post_messages+invite_users+restrict_members`
+   `t.me/JanykadamBot?startchannel&admin=post_messages+invite_users+restrict_members`
    или вручную. Бот получает `my_chat_member`, записывает канал в
    `bot_channels` и узнаёт марафон по основной ссылке канала или по его
    имени. Не совпало — панель предложит выбрать канал вручную.
