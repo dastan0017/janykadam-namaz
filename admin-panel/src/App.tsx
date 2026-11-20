@@ -1,11 +1,13 @@
+import { useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { ParticipantDrawer } from './components/ParticipantDrawer';
 import { PointsModal } from './components/PointsModal';
 import { PreviewRail } from './components/PreviewRail';
 import { Sidebar } from './components/Sidebar';
-import { ConfirmDialog, Toast } from './components/ui';
+import { ConfirmDialog, SaveBar, Toast } from './components/ui';
 import { GLOBAL, SCREEN_TITLES } from './data/constants';
 import { currentMarathon, currentTopic, isCurator } from './lib/derive';
+import { isDirty } from './lib/edits';
 import { buildPreview } from './lib/preview';
 import { StoreProvider } from './store/StoreProvider';
 import { useActions, useAppState, useIsMobile } from './store/context';
@@ -13,7 +15,9 @@ import { Analytics } from './screens/Analytics';
 import { BotSettings } from './screens/BotSettings';
 import { BotTexts } from './screens/BotTexts';
 import { Broadcasts } from './screens/Broadcasts';
+import { Channel } from './screens/Channel';
 import { Journal } from './screens/Journal';
+import Login from './screens/Login';
 import { MarathonSettings } from './screens/MarathonSettings';
 import { Marathons } from './screens/Marathons';
 import { Namaz } from './screens/Namaz';
@@ -34,7 +38,7 @@ const MOBILE_TABS: { id: Screen; label: string }[] = [
 
 function Panel() {
   const s = useAppState();
-  const { go, set } = useActions();
+  const { go, set, saveEdit, undoEdit } = useActions();
   const isMobile = useIsMobile();
   const m = currentMarathon(s);
   const cur = isCurator(s);
@@ -56,6 +60,13 @@ function Panel() {
             : '';
 
   const hasRail = !noPerm && !!buildPreview(s);
+
+  // Новый экран открывается сверху: иначе после создания марафона страница
+  // канала открывалась прокрученной, и итог с первым шагом оставался за краем.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [screen, s.mid]);
 
   const body = noPerm ? (
     <div className="card" style={{ padding: 40, textAlign: 'center', maxWidth: 540, margin: '40px auto' }}>
@@ -85,6 +96,8 @@ function Panel() {
     <Analytics />
   ) : screen === 'settings' ? (
     <MarathonSettings />
+  ) : screen === 'channel' ? (
+    <Channel />
   ) : screen === 'namaz' ? (
     <Namaz />
   ) : screen === 'texts' ? (
@@ -105,12 +118,13 @@ function Panel() {
         <Header isMobile={isMobile} />
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <main style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 22px 40px' }}>
+          <main ref={mainRef} style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: '20px 22px 40px' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               {crumbs ? <span style={{ color: 'var(--muted)', fontSize: 13 }}>{crumbs}</span> : null}
               <h1 className="h-page">{SCREEN_TITLES[screen]}</h1>
             </div>
             {body}
+            {isDirty(s) ? <SaveBar saving={!!s.edit?.saving} onSave={saveEdit} onUndo={undoEdit} /> : null}
           </main>
 
           {hasRail && !isMobile ? <PreviewRail /> : null}
@@ -144,10 +158,25 @@ function Panel() {
   );
 }
 
+/** Пока проверяется сессия, рисовать панель не на чем — данных ещё нет. */
+function Gate() {
+  const s = useAppState();
+
+  if (s.auth === 'checking') {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', background: 'var(--bg)' }}>
+        <span className="sub">Загрузка…</span>
+      </div>
+    );
+  }
+  if (s.auth === 'anonymous') return <Login />;
+  return <Panel />;
+}
+
 export default function App() {
   return (
     <StoreProvider>
-      <Panel />
+      <Gate />
     </StoreProvider>
   );
 }

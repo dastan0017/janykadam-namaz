@@ -1,0 +1,73 @@
+# Прод-стенд: база, бот с API и Caddy, который отдаёт панель и проксирует API.
+#
+# Запуск с сервера, из корня репозитория:
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#
+# База наружу не публикуется вовсе: к ней ходят только из этой сети.
+
+name: janykadam
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: janykadam
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
+      POSTGRES_DB: janykadam
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U janykadam']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ../telegram-bot
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      NODE_ENV: production
+      DATABASE_URL: postgres://janykadam:${POSTGRES_PASSWORD}@db:5432/janykadam
+      BOT_TOKEN: ${BOT_TOKEN:?нужен BOT_TOKEN}
+      BOT_MODE: webhook
+      PUBLIC_URL: https://${DOMAIN:?нужен DOMAIN}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?нужен WEBHOOK_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET:?нужен SESSION_SECRET}
+      INITIAL_ADMIN_TG_USERNAME: ${INITIAL_ADMIN_TG_USERNAME:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # ADMIN_ORIGIN не нужен: панель и API на одном origin, CORS не участвует.
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+      args:
+        VITE_API_URL: ''
+        VITE_BOT_USERNAME: ${BOT_USERNAME:?нужен BOT_USERNAME}
+    depends_on:
+      - app
+    environment:
+      # Caddy получит сертификат на этот адрес. Для проверки без домена
+      # сюда можно подставить `:80` — тогда TLS не включится.
+      SITE_ADDRESS: ${SITE_ADDRESS:-${DOMAIN}}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

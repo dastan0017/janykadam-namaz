@@ -1,8 +1,11 @@
+import { useEffect, useRef } from 'react';
+import { ChannelLinkField, CreateChannelSteps } from '../components/ChannelGuide';
 import { ICONS } from '../data/constants';
 import { dateRu, plural } from '../lib/format';
 import { useActions, useAppState } from '../store/context';
 import type { MarathonStatus } from '../types';
-import { EmptyState, Segmented, StatusPill } from '../components/ui';
+import { EmptyState, Pager, Segmented, StatusPill } from '../components/ui';
+import { usePaged } from '../lib/paged';
 
 const TABS: { id: MarathonStatus | 'all'; label: string }[] = [
   { id: 'all', label: 'Все' },
@@ -14,65 +17,111 @@ const TABS: { id: MarathonStatus | 'all'; label: string }[] = [
 
 export function Marathons() {
   const s = useAppState();
-  const { set, go, switchM, duplicate, deleteM, copyLink, createM } = useActions();
+  const { set, go, switchM, duplicate, deleteM, copyLink, createM, openNewM } = useActions();
 
   const list = s.marathons.filter((x) => s.filterTab === 'all' || x.status === s.filterTab);
+  const { rows, pager } = usePaged(list, s.filterTab, 12);
   const nm = s.newM;
+  // «Дублировать» нажимают и на карточке внизу списка — форма должна оказаться на виду.
+  const formRef = useRef<HTMLElement>(null);
+  const formKey = nm ? nm.fromId ?? 'new' : null;
+  useEffect(() => {
+    if (formKey) formRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [formKey]);
+  const fromName = nm?.fromId ? s.marathons.find((m) => m.id === nm.fromId)?.name : undefined;
+  const linkBad = !!nm?.linkCheck && !nm.linkCheck.ok;
 
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 14 }}>
         <Segmented ariaLabel="Фильтр марафонов" value={s.filterTab} onChange={(id) => set({ filterTab: id })} options={TABS} />
         <div className="grow" />
-        <button type="button" className="btn-secondary" onClick={() => set({ newM: { name: '', start: '2026-12-01', end: '2026-12-30', err: '' } })}>
+        <button type="button" className="btn-secondary" onClick={() => openNewM()}>
           Новый пустой марафон
         </button>
       </div>
 
       {nm ? (
-        <div
-          className="card"
-          style={{ borderColor: 'var(--accent)', marginBottom: 14, display: 'grid', gridTemplateColumns: 'minmax(200px,2fr) repeat(2, minmax(130px,1fr)) auto', gap: 10, alignItems: 'end' }}
-        >
-          <label className="label">
-            <span className="label-text">Название</span>
-            <input
-              type="text"
-              className="input"
-              value={nm.name}
-              onChange={(e) => set({ newM: { ...nm, name: e.target.value, err: '' } })}
-              placeholder="Например: Рамазан 2027"
-            />
-          </label>
-          <label className="label">
-            <span className="label-text">Начало</span>
-            <input type="date" className="input" value={nm.start} onChange={(e) => set({ newM: { ...nm, start: e.target.value } })} />
-          </label>
-          <label className="label">
-            <span className="label-text">Конец</span>
-            <input type="date" className="input" value={nm.end} onChange={(e) => set({ newM: { ...nm, end: e.target.value } })} />
-          </label>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button type="button" className="btn-secondary" onClick={() => set({ newM: null })}>
-              Отмена
-            </button>
-            <button type="button" className="btn" onClick={createM}>
-              Создать черновик
-            </button>
-          </div>
-          {nm.err ? (
-            <div className="err-text" style={{ gridColumn: '1/-1', fontSize: 12.5 }}>
-              {nm.err}
+        <section ref={formRef} className="card new-m" aria-label={fromName ? 'Копия марафона' : 'Новый марафон'}>
+          <div>
+            <div className="h-card">{fromName ? `Копия марафона «${fromName}»` : 'Новый марафон'}</div>
+            <div className="hint">
+              {fromName
+                ? 'Намазы, свои темы и вопросы перенесутся. Участницы и канал — нет: у нового потока свой канал.'
+                : 'Темы добавите после создания. Канал отчётов нужен сразу — у каждого марафона свой.'}
             </div>
-          ) : null}
-        </div>
+          </div>
+
+          <div className="new-m-grid">
+            <label className="label">
+              <span className="label-text">Название</span>
+              <input
+                type="text"
+                className="input"
+                value={nm.name}
+                onChange={(e) => set({ newM: { ...nm, name: e.target.value, err: '' } })}
+                placeholder="Например: Рамазан 2027"
+              />
+            </label>
+            <label className="label">
+              <span className="label-text">Начало</span>
+              <input type="date" className="input" value={nm.start} onChange={(e) => set({ newM: { ...nm, start: e.target.value } })} />
+            </label>
+            <label className="label">
+              <span className="label-text">Конец</span>
+              <input type="date" className="input" value={nm.end} onChange={(e) => set({ newM: { ...nm, end: e.target.value } })} />
+            </label>
+          </div>
+
+          <div className="new-m-channel">
+            <ChannelLinkField
+              label="📺 Ссылка на канал отчётов"
+              required
+              value={nm.channelLink}
+              onChange={(v) => set({ newM: { ...nm, channelLink: v, err: '' } })}
+              onResult={(r) => set((prev) => ({ newM: prev.newM ? { ...prev.newM, linkCheck: r } : null }))}
+            />
+            <div className="hint">
+              Нужен именно <b>канал</b>, не группа: туда бот будет выкладывать видеоотчёты участниц. Для каждого марафона — новый канал. Панель
+              проверит ссылку и покажет название канала.
+            </div>
+            <button
+              type="button"
+              className="btn-link"
+              aria-expanded={!!nm.guide}
+              onClick={() => set({ newM: { ...nm, guide: !nm.guide } })}
+            >
+              {nm.guide ? 'Скрыть инструкцию' : 'Как создать канал (не группу)? — 1 минута'}
+            </button>
+            {nm.guide ? (
+              <div className="guide-box">
+                <CreateChannelSteps />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="new-m-foot">
+            <span className="hint" style={{ flex: '1 1 240px' }}>
+              Дальше: добавить бота в канал админом — покажем на следующем шаге.
+            </span>
+            <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+              <button type="button" className="btn-secondary" onClick={() => set({ newM: null })}>
+                Отмена
+              </button>
+              <button type="button" className="btn" onClick={createM} disabled={linkBad}>
+                {fromName ? 'Создать копию' : 'Создать черновик'}
+              </button>
+            </div>
+          </div>
+          {nm.err && nm.err !== nm.linkCheck?.message ? <div className="err-text">{nm.err}</div> : null}
+        </section>
       ) : null}
 
       {s.marathons.length === 0 ? (
         <EmptyState
           title="Марафонов пока нет"
           action={
-            <button type="button" className="btn" onClick={() => set({ newM: { name: '', start: '2026-12-01', end: '2026-12-30', err: '' } })}>
+            <button type="button" className="btn" onClick={() => openNewM()}>
               Создать марафон
             </button>
           }
@@ -84,16 +133,21 @@ export function Marathons() {
       {s.marathons.length > 0 && list.length === 0 ? <div style={{ color: 'var(--muted)', padding: 30, textAlign: 'center' }}>В этом списке пусто.</div> : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
-        {list.map((x) => {
+        {rows.map((x) => {
+          // Данные грузятся по одному марафону, поэтому для остальных берём
+          // сводку из списка — иначе карточки показывали бы нули.
           const dd = s.data[x.id];
-          const act = dd.participants.filter((p) => p.status === 'active');
-          const done = act.filter((p) => p.today.length).length;
-          const nz = (dd.namaz ?? []).length;
-          const topicsLabel = nz + dd.topics.length + (nz ? ` · из них ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')}` : '');
+          const loaded = !!dd && s.loaded.includes(x.id);
+          const act = (dd?.participants ?? []).filter((p) => p.status === 'active');
+          const activeCount = loaded ? act.length : (x.stats?.active ?? 0);
+          const done = loaded ? act.filter((p) => p.today.length).length : (x.stats?.submittedToday ?? 0);
+          const nz = loaded ? (dd.namaz ?? []).length : (x.namazCount ?? 0);
+          const own = loaded ? dd.topics.length : (x.topicsCount ?? 0);
+          const topicsLabel = nz + own + (nz ? ` · из них ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')}` : '');
           const pct =
             x.status === 'running'
-              ? act.length
-                ? Math.round((done / act.length) * 100) + '% сдали сегодня'
+              ? activeCount
+                ? Math.round((done / activeCount) * 100) + '% сдали сегодня'
                 : '—'
               : x.status === 'finished'
                 ? 'завершён'
@@ -138,7 +192,7 @@ export function Marathons() {
                 <div>
                   <span style={{ color: 'var(--muted)' }}>Участниц</span>
                   <br />
-                  {x.reported ?? dd.participants.length}
+                  {x.reported ?? dd?.participants.length ?? 0}
                 </div>
                 <div>
                   <span style={{ color: 'var(--muted)' }}>Тем</span>
@@ -176,6 +230,8 @@ export function Marathons() {
           );
         })}
       </div>
+
+      <Pager {...pager} />
     </>
   );
 }

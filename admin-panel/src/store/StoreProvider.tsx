@@ -1,22 +1,103 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { GLOBAL, NAMAZ, TODAY_LABEL } from '../data/constants';
+import { ApiError, USE_SEED, setUnauthorizedHandler } from '../api/client';
+import { api } from '../api/endpoints';
+import { loadGlobal, loadMarathon, loadParts, type GlobalPart } from '../api/load';
+import {
+  botPatch, marathonPatch, optionPatch, questionPatch, toChannelStatus, toLedger, toMe, toSegmentDto, toTopic, topicPatch,
+} from '../api/map';
+import { GLOBAL, NAMAZ } from '../data/constants';
+import { initialState } from '../data/initial';
 import { seed } from '../data/seed';
-import { currentData, currentMarathon, filteredParts, meId, meName, segments } from '../lib/derive';
-import { plural, uid } from '../lib/format';
-import { tzLabel } from '../lib/time';
-import type { AppState, Marathon, MarathonData, QuestionType } from '../types';
+import { currentData, currentMarathon, filteredParts, segments } from '../lib/derive';
+import { changedKeys, isDirty, snapshot } from '../lib/edits';
+import { channelLinkError, normalizeChannelLink } from '../lib/channel';
+import { plural, slugify } from '../lib/format';
+import { buildPath, currentPath, parseRoute, type Route } from '../lib/route';
+import { localDate, tzLabel } from '../lib/time';
+import type {
+  AppState, BotSettings, BotText, ChannelStatus, ChannelSummary, EditKind, EditState, Marathon, MarathonData, QuestionType, Screen,
+  Snapshot,
+} from '../types';
 import { ActionsCtx, StateCtx, type Actions, type Patch, type Updater } from './context';
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 
-const emptyData = (): MarathonData => ({ topics: [], namaz: [], participants: [], trend: [], ledger: {}, broadcasts: [] });
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/**
+ * Что перезагружать при открытии экрана.
+ *
+ * Данные правит не только панель: бот пишет в ту же базу, и отчёт, пришедший
+ * минуту назад, виден только после обновления. Поэтому экран открывается со
+ * свежими данными — но тянет лишь то, что показывает. `data` — текущий марафон.
+ */
+const REFRESH: Record<Screen, (GlobalPart | 'data')[]> = {
+  marathons: ['marathons'],
+  overview: ['data'],
+  topics: ['data'],
+  topicEditor: ['data'],
+  questionEditor: ['data'],
+  participants: ['data'],
+  broadcasts: ['data'],
+  analytics: ['data'],
+  settings: ['marathons', 'data'],
+  // Само состояние канала экран опрашивает сам — оно меняется в Telegram.
+  channel: ['marathons'],
+  namaz: ['marathons', 'data'],
+  texts: ['texts'],
+  bot: ['bot'],
+  users: ['users'],
+  journal: ['audit'],
+};
 
+/** Состояние навигации по текущему адресу. */
+type NavPatch = Pick<AppState, 'screen' | 'mid' | 'topicId' | 'qId' | 'topicTab'>;
 
+function navOf(route: Route, marathons: Marathon[], fallbackMid: string | null): NavPatch {
+  const m = route.code ? marathons.find((x) => x.code === route.code) : undefined;
+
+  // Ссылка на марафон, которого нет: показываем список, а не пустой экран.
+  if (!GLOBAL.includes(route.screen) && !m) {
+    return { screen: 'marathons', mid: fallbackMid, topicId: null, qId: null, topicTab: 'settings' };
+  }
+
+  return {
+    screen: route.screen,
+    mid: m?.id ?? fallbackMid,
+    topicId: route.topicId ?? null,
+    qId: route.qId ?? null,
+    topicTab: route.topicTab ?? 'settings',
+  };
+}
+
+/** Адрес, отвечающий состоянию навигации. */
+function pathOf(s: Pick<AppState, 'screen' | 'mid' | 'topicId' | 'qId' | 'topicTab' | 'marathons'>): string {
+  return buildPath({
+    screen: s.screen,
+    code: s.marathons.find((m) => m.id === s.mid)?.code,
+    topicId: s.topicId ?? undefined,
+    qId: s.qId ?? undefined,
+    topicTab: s.topicTab,
+  });
+}
+
+/**
+ * Состояние панели.
+ *
+ * Данные живут на бэкенде; здесь их копия, которой рисуются экраны. Правка
+ * применяется сразу локально — интерфейс не должен ждать сеть, — а потом уходит
+ * в API. Если запрос не прошёл, показывается причина и данные перезагружаются:
+ * лучше вернуть правду, чем оставить на экране то, чего в базе нет.
+ */
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(seed);
+  const [state, setState] = useState<AppState>(initialState);
   const toastTimer = useRef<number | undefined>(undefined);
-  const sendTimer = useRef<number | undefined>(undefined);
+  const pollTimer = useRef<number | undefined>(undefined);
+  // Текущее состояние для эффекта обновления: он зависит только от экрана.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  // Экран и марафон, для которых данные уже обновлены.
+  const refreshedKey = useRef<string | null>(null);
 
   const set = useCallback((patch: Patch | Updater) => {
     setState((s) => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }));
@@ -28,13 +109,267 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toastTimer.current = window.setTimeout(() => setState((s) => ({ ...s, toast: null })), 3600);
   }, []);
 
-  useEffect(
-    () => () => {
+  /* ───────── загрузка ───────── */
+
+  const reloadGlobal = useCallback(async () => {
+    const patch = await loadGlobal();
+    setState((s) => ({ ...s, ...patch }));
+    return patch;
+  }, []);
+
+  const reloadMarathon = useCallback(async (id: string) => {
+    const data = await loadMarathon(id);
+    setState((s) => ({
+      ...s,
+      data: { ...s.data, [id]: data },
+      loaded: s.loaded.includes(id) ? s.loaded : [...s.loaded, id],
+      loading: false,
+    }));
+  }, []);
+
+  /**
+   * Возврат формы к значениям до правки. Варианты ответа, которых уже нет,
+   * не воскрешаем: их удаление — отдельное действие, оно уже сохранено.
+   */
+  const undoEdit = useCallback(() => {
+    setState((s) => {
+      const e = s.edit;
+      if (!e) return s;
+      const base = e.base;
+
+      if (e.kind === 'bot') return { ...s, bot: { ...s.bot, ...(base as unknown as Partial<BotSettings>) }, edit: null };
+      if (e.kind === 'text') {
+        return { ...s, texts: s.texts.map((x) => (x.key === e.id ? { ...x, ...(base as unknown as Partial<BotText>) } : x)), edit: null };
+      }
+      if (e.kind === 'marathon') {
+        return { ...s, marathons: s.marathons.map((m) => (m.id === e.id ? { ...m, ...(base as unknown as Partial<Marathon>) } : m)), edit: null };
+      }
+
+      const d = clone(s.data);
+      const topics = (s.mid ? d[s.mid]?.topics : undefined) ?? [];
+      if (e.kind === 'topic') {
+        const topic = topics.find((x) => x.id === e.id);
+        if (topic) Object.assign(topic, base);
+        return { ...s, data: d, edit: null };
+      }
+
+      const q = topics.flatMap((x) => x.questions).find((x) => x.id === e.id);
+      for (const [k, v] of Object.entries(base)) {
+        if (!q) break;
+        if (!k.startsWith('o:')) {
+          (q as unknown as Record<string, unknown>)[k] = v;
+          continue;
+        }
+        const [, oid, field] = k.split(':');
+        const o = q.options.find((x) => x.id === oid);
+        if (o) (o as unknown as Record<string, unknown>)[field] = v;
+      }
+      return { ...s, data: d, edit: null };
+    });
+  }, []);
+
+  const bootstrap = useCallback(async () => {
+    // Разработка без бэкенда: панель работает на фикстурах и ничего не сохраняет.
+    if (USE_SEED) {
+      const demo = seed();
+      // Демо тоже открывается по адресу: прямая ссылка ведёт на нужный экран.
+      const path = window.location.pathname;
+      const nav = path === '/' ? {} : navOf(parseRoute(path, window.location.search), demo.marathons, demo.mid);
+      setState({ ...demo, ...nav });
+      return;
+    }
+    try {
+      const me = await api.me();
+      const patch = await loadGlobal();
+      const first = patch.marathons.find((m) => m.status === 'running') ?? patch.marathons[0];
+      // Открываем то, что в адресе: перезагрузка должна оставить на месте.
+      const nav = navOf(parseRoute(window.location.pathname, window.location.search), patch.marathons, first?.id ?? null);
+
+      // Отмечаем до того, как панель станет видимой: иначе эффект обновления
+      // успеет сработать на первом же кадре и сходит за тем же самым второй раз.
+      refreshedKey.current = `${nav.screen}|${nav.mid ?? ''}`;
+
+      // Приводим адрес к каноническому виду: «/» и непонятный путь не должны
+      // остаться в истории — иначе «назад» вернёт туда же.
+      window.history.replaceState(null, '', pathOf({ ...nav, marathons: patch.marathons }));
+
+      setState((s) => ({
+        ...s,
+        ...patch,
+        ...nav,
+        auth: 'ready',
+        authError: null,
+        me: toMe(me),
+        role: me.role,
+        loading: !!nav.mid,
+      }));
+
+      if (nav.mid) await reloadMarathon(nav.mid);
+    } catch (err) {
+      const anonymous = err instanceof ApiError && err.unauthorized;
+      setState((s) => ({
+        ...s,
+        auth: 'anonymous',
+        me: null,
+        authError: anonymous ? null : errorText(err),
+      }));
+    }
+  }, [reloadMarathon]);
+
+  /**
+   * Журнал баллов и окна на сегодня грузятся, когда открывают карточку:
+   * тянуть их для всех участниц сразу не нужно, а в таблице они не видны.
+   */
+  useEffect(() => {
+    const pid = state.drawerId;
+    const mid = state.mid;
+    if (!pid || !mid || state.data[mid]?.ledger[pid]) return;
+
+    let alive = true;
+    void api
+      .participant(pid, mid)
+      .then((detail) => {
+        if (!alive) return;
+        setState((s) => {
+          const data = s.data[mid];
+          if (!data) return s;
+          // Сколько отчётов в каждый из последних дней — настоящие, из базы.
+          const byDay: Record<string, number> = {};
+          for (const r of detail.last7) byDay[r.dayKey] = (byDay[r.dayKey] ?? 0) + 1;
+
+          return {
+            ...s,
+            data: {
+              ...s.data,
+              [mid]: {
+                ...data,
+                ledger: { ...data.ledger, [pid]: detail.ledger.map(toLedger) },
+                recent: { ...data.recent, [pid]: byDay },
+              },
+            },
+          };
+        });
+      })
+      .catch(() => {
+        // Карточка откроется и без журнала — показывать ошибку здесь незачем.
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [state.drawerId, state.mid, state.data]);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setState((s) => ({ ...s, auth: 'anonymous', me: null })));
+    void bootstrap();
+    return () => {
+      setUnauthorizedHandler(null);
       window.clearTimeout(toastTimer.current);
-      window.clearInterval(sendTimer.current);
-    },
-    [],
-  );
+      window.clearInterval(pollTimer.current);
+    };
+  }, [bootstrap]);
+
+  /** Закрытие вкладки с несохранённой формой — через вопрос браузера. */
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (isDirty(stateRef.current)) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, []);
+
+  /** Адрес следует за состоянием: каждый раздел виден в строке браузера. */
+  const path = pathOf(state);
+  useEffect(() => {
+    if (state.auth !== 'ready') return;
+    if (currentPath() === path) return;
+    window.history.pushState(null, '', path);
+  }, [path, state.auth]);
+
+  /** «Назад» и «вперёд» в браузере: адрес ведёт состояние. */
+  useEffect(() => {
+    const onPop = () => {
+      const s = stateRef.current;
+      if (s.auth !== 'ready') return;
+
+      const apply = () => {
+        const nav = navOf(parseRoute(window.location.pathname, window.location.search), s.marathons, s.mid);
+        // Непонятный путь не должен остаться в строке браузера: показываем список
+        // марафонов — пусть и адрес будет его.
+        const canonical = pathOf({ ...nav, marathons: s.marathons });
+        if (canonical !== currentPath()) window.history.replaceState(null, '', canonical);
+
+        setState((prev) => ({ ...prev, ...nav, drawerId: null, navOpen: false }));
+      };
+
+      if (!isDirty(s)) {
+        apply();
+        return;
+      }
+
+      // «Назад» с несохранённой формой: возвращаем адрес и спрашиваем. После
+      // отмены правок тот же «назад» пройдёт уже без вопроса.
+      window.history.pushState(null, '', pathOf(s));
+      setState((prev) => ({
+        ...prev,
+        confirm: {
+          title: 'Уйти без сохранения?',
+          body: 'Правки в форме не сохранены. Если уйти, они пропадут.',
+          ok: 'Уйти без сохранения',
+          danger: true,
+          onOk: () => {
+            setState((x) => ({ ...x, confirm: null }));
+            undoEdit();
+            window.history.back();
+          },
+        },
+      }));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [undoEdit]);
+
+  /**
+   * Обновление при открытии экрана. Срабатывает на смену экрана или марафона
+   * и тянет только то, что этот экран показывает.
+   */
+  const refreshKey = `${state.screen}|${state.mid ?? ''}`;
+  useEffect(() => {
+    if (USE_SEED || state.auth !== 'ready') return;
+    if (refreshedKey.current === refreshKey) return;
+    refreshedKey.current = refreshKey;
+
+    const { screen, mid, loaded } = stateRef.current;
+    const parts = REFRESH[screen];
+    const globals = parts.filter((p): p is GlobalPart => p !== 'data');
+    // Данные марафона нужны и тем экранам, что их не показывают, если их ещё
+    // нет: иначе переключение марафона с общего экрана оставит пустоту.
+    const withData = !!mid && (parts.includes('data') || !loaded.includes(mid));
+
+    // Несохранённых правок здесь уже нет: уход с формы их сохраняет или
+    // отменяет — иначе ответ сервера затёр бы их молча.
+    let alive = true;
+    void (async () => {
+      try {
+        await Promise.all([
+          globals.length
+            ? loadParts(globals).then((patch) => {
+                if (alive) setState((s) => ({ ...s, ...patch }));
+              })
+            : null,
+          withData && mid ? reloadMarathon(mid) : null,
+        ]);
+      } catch (err) {
+        if (!alive) return;
+        setState((s) => ({ ...s, loading: false }));
+        toast(`Не удалось обновить данные: ${errorText(err)}`);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [refreshKey, state.auth, reloadMarathon, toast]);
 
   const actions = useMemo<Actions>(() => {
     /** Правка данных марафонов: клонирует data и marathons, чтобы мутировать их свободно. */
@@ -47,64 +382,276 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     };
 
-    const go: Actions['go'] = (screen, extra) => set({ screen, navOpen: false, ...extra });
+    /**
+     * Запрос к API. Ошибку показывает тостом и возвращает данные с бэкенда:
+     * локальная правка могла не сохраниться, и на экране осталась бы неправда.
+     */
+    const call = async (fn: () => Promise<unknown>, opts: { ok?: string; reload?: string | 'global' } = {}) => {
+      try {
+        await fn();
+        if (opts.ok) toast(opts.ok);
+        return true;
+      } catch (err) {
+        toast(errorText(err));
+        if (opts.reload === 'global') void reloadGlobal().catch(() => {});
+        else if (opts.reload) void reloadMarathon(opts.reload).catch(() => {});
+        return false;
+      }
+    };
 
     const confirmAction = (title: string, body: string, ok: string, danger: boolean, onOk: () => void) =>
       set({ confirm: { title, body, ok, danger, onOk } });
 
-    const logAudit = (s: AppState, what: string) => [{ at: '8 ноя 09:40', who: meName(s), what }, ...s.audit];
+    /* ───────── несохранённые правки формы ───────── */
 
-    return {
+    /**
+     * Поля формы меняют состояние сразу, а на бэкенд уходят по кнопке
+     * «Сохранить». Перед первой правкой снимается снимок значений: по нему
+     * считается тело запроса и по нему же работает «Отменить».
+     */
+    const startEdit = (s: AppState, kind: EditKind, id: string): Patch => {
+      if (s.edit && s.edit.kind === kind && s.edit.id === id) return {};
+      const base = snapshot(s, kind, id);
+      return base ? { edit: { kind, id, base, saving: false } } : {};
+    };
+
+    const merge = (keys: string[], one: (k: string) => Record<string, unknown> | null) => {
+      const body: Record<string, unknown> = {};
+      for (const k of keys) Object.assign(body, one(k) ?? {});
+      return Object.keys(body).length ? body : null;
+    };
+
+    /** Правки формы — в запросы: у вопроса их два, у остальных форм один. */
+    const sendEdit = async (e: EditState, now: Snapshot, keys: string[]) => {
+      if (e.kind === 'marathon') {
+        const body = merge(keys, (k) => marathonPatch(k, now[k]));
+        if (body) await api.patchMarathon(e.id, body);
+        return;
+      }
+      if (e.kind === 'topic') {
+        // Пустые баллы и незаполненное окно на бэкенд не отправляются: лучше
+        // сказать об этом, чем молча оставить на экране несохранённое поле.
+        const bad = keys.filter((k) => !topicPatch(k, now[k]));
+        if (bad.length) {
+          throw new Error(bad.includes('points') ? 'Баллы не заданы — тема не сохранена' : 'Окно сдачи заполнено не до конца — тема не сохранена');
+        }
+        const body = merge(keys, (k) => topicPatch(k, now[k]));
+        if (body) await api.patchTopic(e.id, body);
+        return;
+      }
+      if (e.kind === 'bot') {
+        const body = merge(keys, (k) => botPatch(k, now[k]));
+        if (body) await api.patchBotSettings(body);
+        return;
+      }
+      if (e.kind === 'text') {
+        const body = merge(keys, (k) => ({ [k]: String(now[k]) }));
+        if (body) await api.patchBotText(e.id, body);
+        return;
+      }
+
+      // Вопрос и его варианты ответа — одна форма, но разные ручки.
+      const qBody = merge(keys.filter((k) => !k.startsWith('o:')), (k) => questionPatch(k, now[k]));
+      const byOption = new Map<string, Record<string, unknown>>();
+      for (const k of keys) {
+        if (!k.startsWith('o:')) continue;
+        const [, oid, field] = k.split(':');
+        const patch = optionPatch(field as 'kg' | 'ru' | 'pts', now[k] as string | number);
+        byOption.set(oid, { ...(byOption.get(oid) ?? {}), ...patch });
+      }
+
+      await Promise.all([
+        qBody ? api.patchQuestion(e.id, qBody) : null,
+        ...[...byOption].map(([oid, body]) => api.patchOption(oid, body)),
+      ]);
+    };
+
+    /**
+     * Сохранение формы. `false` — не прошло; правки остаются на экране, чтобы
+     * их можно было поправить и отправить снова, а не набирать заново.
+     */
+    const saveEdit = async (quiet = false): Promise<boolean> => {
+      const s = stateRef.current;
+      const e = s.edit;
+      const now = e ? snapshot(s, e.kind, e.id) : null;
+      const keys = e && now ? changedKeys(e.base, now) : [];
+
+      if (!e || !now || keys.length === 0) {
+        if (e) setState((x) => ({ ...x, edit: null }));
+        return true;
+      }
+
+      setState((x) => ({ ...x, edit: x.edit ? { ...x.edit, saving: true } : null }));
+      try {
+        await sendEdit(e, now, keys);
+        setState((x) => ({ ...x, edit: null }));
+        if (!quiet) toast('Сохранено');
+        return true;
+      } catch (err) {
+        setState((x) => ({ ...x, edit: x.edit ? { ...x.edit, saving: false } : null }));
+        toast(errorText(err));
+        return false;
+      }
+    };
+
+    /**
+     * Добавить, удалить, переставить — действия сразу: они перезагружают
+     * данные, и несохранённую правку формы сначала надо дослать.
+     */
+    const afterSave = (fn: () => void) => {
+      void (async () => {
+        if (await saveEdit(true)) fn();
+      })();
+    };
+
+    /** Перед удалением: правки удаляемого выбрасываем, чужие — досылаем. */
+    const beforeDelete = (id: string, fn: () => void) => {
+      const e = stateRef.current.edit;
+      if (e && e.id === id) {
+        setState((x) => ({ ...x, edit: null }));
+        fn();
+        return;
+      }
+      afterSave(fn);
+    };
+
+    /** Уход с формы с несохранёнными правками: спрашиваем, а не теряем молча. */
+    const guard = (leave: () => void) => {
+      if (!isDirty(stateRef.current)) {
+        leave();
+        return;
+      }
+      confirmAction('Уйти без сохранения?', 'Правки в форме не сохранены. Если уйти, они пропадут.', 'Уйти без сохранения', true, () => {
+        set({ confirm: null });
+        undoEdit();
+        leave();
+      });
+    };
+
+    const go: Actions['go'] = (screen, extra) => guard(() => set({ screen, navOpen: false, ...extra }));
+
+    /** Живое состояние канала — и в карточку марафона: от него зависят проверки запуска. */
+    const applyChannel = (id: string, st: ChannelStatus) =>
+      setState((s) => ({
+        ...s,
+        channelStatus: { ...s.channelStatus, [id]: st },
+        marathons: s.marathons.map((m) => {
+          if (m.id !== id) return m;
+          const summary: ChannelSummary = {
+            link: st.link,
+            chatId: st.chatId,
+            title: st.title,
+            inviteLink: st.inviteLink,
+            rights: st.rights,
+            isPrivate: st.isPrivate,
+            protectedContent: st.protectedContent,
+            ready: st.ready,
+          };
+          return { ...m, channel: summary };
+        }),
+      }));
+
+    const actions: Actions = {
       set,
       go,
       toast,
       setRoleView: (role) => set(role === 'curator' ? { role, drawerId: null, invite: null } : { role }),
 
+      /* ───────── форма ───────── */
+
+      saveEdit: () => void saveEdit(),
+      undoEdit,
+      leaveForm: (then) => guard(then),
+
+      /* ───────── вход ───────── */
+
+      loginWithTelegram: async (payload) => {
+        setState((s) => ({ ...s, auth: 'checking', authError: null }));
+        try {
+          await api.loginTelegram(payload);
+          await bootstrap();
+        } catch (err) {
+          setState((s) => ({ ...s, auth: 'anonymous', authError: errorText(err) }));
+        }
+      },
+
+      logout: () => {
+        void api.logout().catch(() => {});
+        setState(() => ({ ...initialState(), auth: 'anonymous' }));
+      },
+
+      /* ───────── марафоны ───────── */
+
       switchM: (id) =>
+        guard(() => {
+        // Загрузку берёт на себя эффект обновления ниже: он всё равно сходит
+        // за данными при смене марафона, и два запроса подряд не нужны.
         set((s) => ({
           mid: id,
+          loading: !s.loaded.includes(id),
           topicId: null,
           qId: null,
           drawerId: null,
           pf: { ...s.pf, sel: [] },
           // С общих экранов переключение марафона не уводит.
           screen: GLOBAL.includes(s.screen) ? s.screen : 'overview',
-        })),
+        }));
+        }),
 
-      duplicate: (id) => {
-        const src = state.marathons.find((m) => m.id === id);
-        const dd = state.data[id];
-        if (!src || !dd) return;
-        mut((d, _s, ms) => {
-          const n = 'm' + (ms.length + 4);
-          ms.push({ ...src, id: n, code: n, name: 'Копия: ' + src.name, status: 'draft', start: '2026-12-01', end: '2026-12-30', regOpen: false, reported: undefined });
-          d[n] = { topics: clone(d[id].topics), namaz: [...(d[id].namaz ?? [])], participants: [], trend: [], ledger: {}, broadcasts: [] };
+      openNewM: (fromId) => {
+        const src = fromId ? state.marathons.find((m) => m.id === fromId) : undefined;
+        set({
+          newM: src
+            ? { name: `Копия: ${src.name}`, start: src.start, end: src.end, channelLink: '', fromId: src.id, err: '' }
+            : { name: '', start: '2026-12-01', end: '2026-12-30', channelLink: '', err: '' },
         });
-        const nz = (dd.namaz ?? []).length;
-        toast(
-          `Создан черновик «Копия: ${src.name}» — ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')} и ${dd.topics.length} ${plural(dd.topics.length, 'своя тема', 'свои темы', 'своих тем')}, без участниц`,
-        );
       },
+
+      // Копия — тоже новый марафон, и ей нужен свой канал: сначала форма.
+      duplicate: (id) => actions.openNewM(id),
 
       createM: () => {
         const nm = state.newM;
         if (!nm) return;
-        if (!nm.name.trim()) {
-          set({ newM: { ...nm, err: 'Название обязательно' } });
+        const name = nm.name.trim();
+        // Группа или отозванная ссылка: сервер всё равно откажет, скажем сразу.
+        const linkErr = channelLinkError(nm.channelLink) || (nm.linkCheck && !nm.linkCheck.ok ? nm.linkCheck.message : '');
+        if (!name || linkErr) {
+          set({ newM: { ...nm, touched: true, err: !name ? 'Название обязательно' : linkErr } });
           return;
         }
-        mut((d, _s, ms) => {
-          const n = 'm' + (ms.length + 4);
-          ms.push({
-            id: n, code: n, name: nm.name.trim(), status: 'draft',
-            start: nm.start || '2026-12-01', end: nm.end || '2026-12-30',
-            lang: 'kg', regOpen: false, pointsDefault: 10, streakBonus: 5, streakEvery: 7,
-            latePasses: 2, excused: 3, pauseAllowed: true, remindMorning: '05:30', remindEvening: '21:00', skipSubmitted: true,
-          });
-          d[n] = emptyData();
-          return { newM: null };
-        });
-        toast('Черновик создан. На странице «Темы» отметьте нужные намазы и добавьте свои темы.');
+        const channelLink = normalizeChannelLink(nm.channelLink)!;
+        const src = nm.fromId ? state.marathons.find((m) => m.id === nm.fromId) : undefined;
+        const dd = nm.fromId ? state.data[nm.fromId] : undefined;
+
+        void (async () => {
+          try {
+            const created = src
+              ? await api.duplicateMarathon(src.id, { name, startDate: nm.start, endDate: nm.end, channelLink })
+              : await api.createMarathon({
+                  code: slugify(name),
+                  name,
+                  startDate: nm.start || localDate('Asia/Bishkek'),
+                  endDate: nm.end || localDate('Asia/Bishkek'),
+                  channelLink,
+                });
+            await reloadGlobal();
+            await reloadMarathon(created.id);
+            // Сразу на страницу канала: без бота в канале марафон не запустить.
+            set({ newM: null, mid: created.id, screen: 'channel', navOpen: false });
+            if (src) {
+              const nz = (dd?.namaz ?? []).length;
+              const nt = dd?.topics.length ?? 0;
+              toast(
+                `Создан черновик «${created.name}»: ${nz} ${plural(nz, 'намаз', 'намаза', 'намазов')} и ${nt} ${plural(nt, 'своя тема', 'свои темы', 'своих тем')}. Теперь добавьте бота в канал.`,
+              );
+            } else {
+              toast(`Черновик «${created.name}» создан. Теперь добавьте бота в канал — шаги на этой странице.`);
+            }
+          } catch (err) {
+            set((s) => ({ newM: s.newM ? { ...s.newM, err: errorText(err) } : null }));
+          }
+        })();
       },
 
       deleteM: (id) => {
@@ -118,55 +665,174 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             : `Удалятся ${n} участниц, все отчёты и баллы. Это действие нельзя отменить.`,
           'Удалить',
           true,
-          () =>
-            mut((d, s, ms) => {
-              const i = ms.findIndex((x) => x.id === id);
-              ms.splice(i, 1);
-              delete d[id];
-              return { confirm: null, mid: s.mid === id ? ms[0]?.id ?? null : s.mid };
-            }),
+          () => {
+            set({ confirm: null });
+            void (async () => {
+              if (!(await call(() => api.deleteMarathon(id), { reload: 'global' }))) return;
+              mut((d, s, ms) => {
+                const i = ms.findIndex((x) => x.id === id);
+                if (i >= 0) ms.splice(i, 1);
+                delete d[id];
+                return { mid: s.mid === id ? (ms[0]?.id ?? null) : s.mid };
+              });
+            })();
+          },
         );
       },
 
       copyLink: (id) => {
         const m = state.marathons.find((x) => x.id === id);
         if (!m) return;
+        if (!state.bot.username) {
+          toast('Username бота неизвестен — бот ещё не поднялся или Telegram недоступен');
+          return;
+        }
         const link = `https://t.me/${state.bot.username}?start=${m.code}`;
         void navigator.clipboard?.writeText(link).catch(() => {});
         toast(m.status === 'draft' ? `Скопировано: ${link} — заработает после запуска марафона` : `Скопировано: ${link}`);
       },
 
-      setM: (k, v) =>
+      setM: (k, v) => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((_d, s, ms) => {
           const m = ms.find((x) => x.id === s.mid);
           if (m) (m[k] as Marathon[typeof k]) = v;
-        }),
-
-      launch: () => {
-        mut((_d, s, ms) => {
-          const m = ms.find((x) => x.id === s.mid);
-          if (m) m.status = 'recruiting';
+          return startEdit(s, 'marathon', mid);
         });
-        toast('Марафон открыт для набора. Deep link активен.');
       },
 
-      setT: (k, v) =>
+      launch: () => {
+        const mid = state.mid;
+        if (!mid) return;
+        void (async () => {
+          try {
+            await api.launch(mid);
+            await reloadGlobal();
+            toast('Марафон открыт для набора. Deep link активен.');
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
+      },
+
+      /* ───────── канал отчётов ───────── */
+
+      checkChannelLink: async (link) => {
+        // Демо без бэкенда: ссылка считается каналом, чтобы показать, как выглядит проверка.
+        if (USE_SEED) {
+          return { link: normalizeChannelLink(link), kind: 'channel', ok: true, title: 'Кыш марафону — отчёттор', extra: '1 subscriber', message: '' };
+        }
+        try {
+          return await api.checkChannelLink(link);
+        } catch {
+          return null;
+        }
+      },
+
+      loadChannel: async (id) => {
+        try {
+          const st = toChannelStatus(await api.channelStatus(id));
+          applyChannel(id, st);
+        } catch (err) {
+          // Опрос раз в несколько секунд: всплывающая ошибка на каждый тик только мешала бы.
+          if (err instanceof ApiError && err.status === 401) throw err;
+        }
+      },
+
+      saveChannelLink: async (link) => {
+        const mid = state.mid;
+        if (!mid) return false;
+        const err = channelLinkError(link);
+        if (err) {
+          toast(err);
+          return false;
+        }
+        try {
+          await api.patchMarathon(mid, { channelLink: normalizeChannelLink(link) });
+          await reloadGlobal();
+          await actions.loadChannel(mid);
+          toast('Ссылка на канал сохранена');
+          return true;
+        } catch (e) {
+          toast(errorText(e));
+          return false;
+        }
+      },
+
+      connectChannel: (chatId) => {
+        const mid = state.mid;
+        if (!mid) return;
+        void (async () => {
+          try {
+            applyChannel(mid, toChannelStatus(await api.channelConnect(mid, chatId)));
+            await reloadGlobal();
+            toast('Канал подключён — бот написал в него первое сообщение');
+          } catch (e) {
+            toast(errorText(e));
+          }
+        })();
+      },
+
+      disconnectChannel: () => {
+        const m = currentMarathon(state);
+        if (!m) return;
+        confirmAction(
+          `Отвязать канал «${m.channel.title || 'без названия'}»?`,
+          'Бот перестанет выкладывать туда отчёты и впускать участниц. Сам канал и посты в нём останутся. После этого можно подключить другой канал — участницы получат кнопку в него.',
+          'Отвязать',
+          true,
+          () => {
+            set({ confirm: null });
+            void (async () => {
+              try {
+                applyChannel(m.id, toChannelStatus(await api.channelDisconnect(m.id)));
+                await reloadGlobal();
+                toast('Канал отвязан');
+              } catch (e) {
+                toast(errorText(e));
+              }
+            })();
+          },
+        );
+      },
+
+      /* ───────── темы ───────── */
+
+      setT: (k, v) => {
+        const topicId = state.topicId;
+        if (!topicId || !state.mid) return;
         mut((d, s) => {
           const t = s.mid ? d[s.mid].topics.find((x) => x.id === s.topicId) : undefined;
           if (t) (t as unknown as Record<string, unknown>)[k] = v;
-        }),
+          return startEdit(s, 'topic', topicId);
+        });
+      },
 
-      toggleTopic: (id) => {
+      toggleTopic: (id) =>
+        afterSave(() => {
         const ns = NAMAZ.find((x) => x.id === id);
         const own = currentData(state).topics.find((x) => x.id === id);
         if (!ns && !own) return;
 
+        const mid = state.mid;
+        if (!mid) return;
         const m = currentMarathon(state);
         const n = currentData(state).participants.filter((p) => p.status === 'active').length;
-        const on = ns ? (currentData(state).namaz ?? []).includes(id) : own!.active;
+        const enabled = currentData(state).namaz ?? [];
+        const on = ns ? enabled.includes(id) : own!.active;
         const name = (ns ?? own)!.nameKg || 'без названия';
 
-        const apply = (d: Record<string, MarathonData>, s: AppState) => {
+        const save = async (confirmRemoval: boolean) => {
+          if (ns) {
+            const next = on ? enabled.filter((x) => x !== id) : [...enabled, id];
+            const ordered = NAMAZ.filter((x) => next.includes(x.id)).map((x) => x.id);
+            return call(() => api.setNamaz(mid, ordered, confirmRemoval), { reload: mid });
+          }
+          return call(() => api.patchTopic(id, { active: !on }), { reload: mid });
+        };
+
+        const applyLocal = (d: Record<string, MarathonData>, s: AppState) => {
           if (!s.mid) return;
           if (ns) {
             const a = d[s.mid].namaz ?? (d[s.mid].namaz = []);
@@ -192,18 +858,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             false,
             () => {
               mut((d, s) => {
-                apply(d, s);
+                applyLocal(d, s);
                 return { confirm: null };
               });
-              toast(`«${name}» выключена. Записано в журнал.`);
+              void (async () => {
+                if (await save(true)) toast(`«${name}» выключена. Записано в журнал.`);
+              })();
             },
           );
         } else {
-          mut((d, s) => apply(d, s));
+          mut((d, s) => applyLocal(d, s));
+          void save(false);
         }
-      },
+        }),
 
       moveTopic: (id, dir) =>
+        afterSave(() => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const a = d[s.mid].topics;
@@ -211,83 +883,134 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const j = i + dir;
           if (j < 0 || j >= a.length) return;
           [a[i], a[j]] = [a[j], a[i]];
+          void call(() => api.reorderTopics(mid, a.map((t) => t.id)), { reload: mid });
+        });
         }),
 
-      addTopic: () => {
-        const id = uid();
+      addTopic: () =>
+        afterSave(() => {
+        const mid = state.mid;
+        if (!mid) return;
         const pts = currentMarathon(state)?.pointsDefault ?? 5;
-        mut((d, s) => {
-          if (!s.mid) return;
-          d[s.mid].topics.push({
-            id, emoji: '🕊', nameKg: '', nameRu: '', active: true, mode: 'fixed',
-            start: '05:00', end: '22:00', points: pts, freq: 'daily', mandatory: false, remind: 0, questions: [],
-          });
-          return { screen: 'topicEditor', topicId: id, topicTab: 'settings' };
-        });
-      },
+        void (async () => {
+          try {
+            const created = await api.createTopic(mid, {
+              emoji: '🕊',
+              nameKg: '',
+              nameRu: '',
+              active: true,
+              startLocal: '05:00',
+              endLocal: '22:00',
+              points: pts,
+              freq: 'daily',
+              mandatory: false,
+              remindOffsetMin: 0,
+            });
+            mut((d, s) => {
+              if (!s.mid) return;
+              d[s.mid].topics.push(toTopic({ ...created, questions: [] }));
+              return { screen: 'topicEditor', topicId: created.id, topicTab: 'settings' };
+            });
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
+        }),
 
       deleteTopic: (id) => {
         const t = currentData(state).topics.find((x) => x.id === id);
-        if (!t) return;
+        const mid = state.mid;
+        if (!t || !mid) return;
         confirmAction(
           `Удалить тему «${t.nameKg || 'без названия'}»?`,
           'Удалятся вопросы и варианты ответов. Уже принятые отчёты и баллы по теме сохранятся в истории участниц.',
           'Удалить тему',
           true,
           () =>
+            beforeDelete(id, () => {
             mut((d, s) => {
               if (!s.mid) return;
               d[s.mid].topics = d[s.mid].topics.filter((x) => x.id !== id);
               return { confirm: null, screen: 'topics', topicId: null };
+            });
+            void call(() => api.deleteTopic(id), { reload: mid });
             }),
         );
       },
 
-      setQ: (k, v) =>
+      /* ───────── вопросы и варианты ответов ───────── */
+
+      setQ: (k, v) => {
+        const qId = state.qId;
+        const mid = state.mid;
+        if (!qId || !mid) return;
+
+        if (k === 'type') {
+          // Смена типа переписывает варианты на бэкенде: у шкалы и да/нет надписи
+          // заданы типом. Поэтому она применяется сразу, а ответ сервера
+          // забирается целиком — угадать новые варианты панель не может.
+          const body = questionPatch('type', v);
+          if (!body) return;
+          afterSave(() => {
+            void (async () => {
+              try {
+                await api.patchQuestion(qId, body);
+                await reloadMarathon(mid);
+                void (v as QuestionType);
+              } catch (err) {
+                toast(errorText(err));
+                void reloadMarathon(mid).catch(() => {});
+              }
+            })();
+          });
+          return;
+        }
+
         mut((d, s) => {
           if (!s.mid) return;
           const q = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((x) => x.id === s.qId);
           if (!q) return;
           (q as unknown as Record<string, unknown>)[k] = v;
-
-          // Смена типа переписывает варианты: у шкалы и да/нет надписи заданы типом.
-          if (k === 'type') {
-            const type = v as QuestionType;
-            if (type === 'scale') {
-              q.options = [1, 2, 3, 4, 5].map((n) => ({ id: 'o' + n, kg: String(n), ru: String(n), pts: 1, locked: true }));
-            } else if (type === 'yesno') {
-              q.options = [
-                { id: 'oy', kg: 'Ооба', ru: 'Да', pts: 5, locked: true },
-                { id: 'on', kg: 'Жок', ru: 'Нет', pts: 0, locked: true },
-              ];
-            } else if (type !== 'single' && type !== 'multi') {
-              q.options = [];
-            } else if (q.options.some((o) => o.locked)) {
-              q.options = q.options.map((o) => ({ ...o, locked: false }));
-            }
-          }
-        }),
-
-      addQ: () => {
-        const id = uid();
-        mut((d, s) => {
-          if (!s.mid) return;
-          d[s.mid].topics
-            .find((t) => t.id === s.topicId)
-            ?.questions.push({ id, textKg: '', textRu: '', type: 'single', required: true, options: [{ id: uid(), kg: '', ru: '', pts: 0 }] });
-          return { screen: 'questionEditor', qId: id };
+          return startEdit(s, 'question', qId);
         });
       },
 
+      addQ: () =>
+        afterSave(() => {
+        const topicId = state.topicId;
+        const mid = state.mid;
+        if (!topicId || !mid) return;
+        void (async () => {
+          try {
+            const q = await api.createQuestion(topicId, { type: 'single', required: true, textKg: '', textRu: '' });
+            // У одиночного выбора вариантов нет вовсе — редактору нужен хотя бы один.
+            await api.createOption(q.id, { labelKg: '', labelRu: '', points: 0 });
+            await reloadMarathon(mid);
+            set({ screen: 'questionEditor', qId: q.id });
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
+        }),
+
       delQ: (id, leave) =>
+        beforeDelete(id, () => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const t = d[s.mid].topics.find((x) => x.id === s.topicId);
           if (t) t.questions = t.questions.filter((q) => q.id !== id);
           return leave ? { screen: 'topicEditor', topicTab: 'questions', qId: null } : {};
+        });
+        void call(() => api.deleteQuestion(id), { reload: mid });
         }),
 
       moveQ: (id, dir) =>
+        afterSave(() => {
+        const mid = state.mid;
+        const topicId = state.topicId;
+        if (!mid || !topicId) return;
         mut((d, s) => {
           if (!s.mid) return;
           const a = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions;
@@ -296,9 +1019,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const j = i + dir;
           if (j < 0 || j >= a.length) return;
           [a[i], a[j]] = [a[j], a[i]];
+          void call(() => api.reorderQuestions(topicId, a.map((q) => q.id)), { reload: mid });
+        });
         }),
 
-      setO: (oid, k, v) =>
+      setO: (oid, k, v) => {
+        const qId = state.qId;
+        if (!qId || !state.mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const o = d[s.mid].topics
@@ -306,25 +1033,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ?.questions.find((q) => q.id === s.qId)
             ?.options.find((x) => x.id === oid);
           if (o) (o as unknown as Record<string, unknown>)[k] = v;
-        }),
+          return startEdit(s, 'question', qId);
+        });
+      },
 
       addO: () =>
-        mut((d, s) => {
-          if (!s.mid) return;
-          d[s.mid].topics
-            .find((t) => t.id === s.topicId)
-            ?.questions.find((q) => q.id === s.qId)
-            ?.options.push({ id: uid(), kg: '', ru: '', pts: 0 });
+        afterSave(() => {
+        const qId = state.qId;
+        const mid = state.mid;
+        if (!qId || !mid) return;
+        void (async () => {
+          try {
+            const created = await api.createOption(qId, { labelKg: '', labelRu: '', points: 0 });
+            mut((d, s) => {
+              if (!s.mid) return;
+              d[s.mid].topics
+                .find((t) => t.id === s.topicId)
+                ?.questions.find((q) => q.id === s.qId)
+                ?.options.push({ id: created.id, kg: '', ru: '', pts: 0 });
+            });
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
         }),
 
       delO: (oid) =>
+        afterSave(() => {
+        const mid = state.mid;
+        if (!mid) return;
         mut((d, s) => {
           if (!s.mid) return;
           const q = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((x) => x.id === s.qId);
           if (q) q.options = q.options.filter((o) => o.id !== oid);
+        });
+        void call(() => api.deleteOption(oid), { reload: mid });
         }),
 
       moveO: (oid, dir) =>
+        afterSave(() => {
+        const mid = state.mid;
+        const qId = state.qId;
+        if (!mid || !qId) return;
         mut((d, s) => {
           if (!s.mid) return;
           const a = d[s.mid].topics.find((t) => t.id === s.topicId)?.questions.find((q) => q.id === s.qId)?.options;
@@ -333,7 +1083,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const j = i + dir;
           if (j < 0 || j >= a.length) return;
           [a[i], a[j]] = [a[j], a[i]];
+          void call(() => api.reorderOptions(qId, a.map((o) => o.id)), { reload: mid });
+        });
         }),
+
+      /* ───────── участницы ───────── */
 
       setPf: (k, v) => set((s) => ({ pf: { ...s.pf, [k]: v } })),
 
@@ -349,31 +1103,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       bulk: (action) => {
         const n = state.pf.sel.length;
+        const mid = state.mid;
+        if (!mid) return;
+
         if (action === 'pause') {
+          const ids = [...state.pf.sel];
           mut((d, s) => {
             if (!s.mid) return;
             d[s.mid].participants.forEach((p) => {
-              if (s.pf.sel.includes(p.id)) p.status = 'paused';
+              if (ids.includes(p.id)) p.status = 'paused';
             });
             return { pf: { ...s.pf, sel: [] } };
           });
-          toast(`Пауза включена у ${n} ${plural(n, 'участницы', 'участниц', 'участниц')}`);
+          void (async () => {
+            for (const id of ids) {
+              if (!(await call(() => api.setParticipantStatus(id, mid, 'paused'), { reload: mid }))) return;
+            }
+            toast(`Пауза включена у ${n} ${plural(n, 'участницы', 'участниц', 'участниц')}`);
+          })();
         }
         if (action === 'message') {
           set((s) => ({ screen: 'broadcasts', bc: { ...s.bc, seg: 'selected', selIds: [...s.pf.sel], stage: 'compose' } }));
         }
       },
 
-      setP: (id, k, v) =>
+      setP: (id, k, v) => {
+        const mid = state.mid;
         mut((d, s) => {
           if (!s.mid) return;
           const p = d[s.mid].participants.find((x) => x.id === id);
           if (p) (p as unknown as Record<string, unknown>)[k] = v;
-        }),
+        });
+        if (mid && k === 'status') {
+          void call(() => api.setParticipantStatus(id, mid, v as 'active' | 'paused' | 'left' | 'finished'), { reload: mid });
+        }
+      },
 
       adjustPoints: () => {
         const pm = state.pointsModal;
-        if (!pm) return;
+        const mid = state.mid;
+        if (!pm || !mid) return;
         const n = Number(pm.delta);
         if (!n) {
           set({ pointsModal: { ...pm, err: 'Укажите число, отличное от нуля' } });
@@ -383,20 +1152,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           set({ pointsModal: { ...pm, err: 'Причина обязательна — она видна участнице и попадает в журнал' } });
           return;
         }
-        mut((d, s) => {
-          if (!s.mid) return;
-          const p = d[s.mid].participants.find((x) => x.id === pm.pid);
-          if (p) p.points += n;
-          const L = d[s.mid].ledger;
-          (L[pm.pid] = L[pm.pid] ?? []).unshift({ d: TODAY_LABEL, delta: n, reason: pm.reason.trim() });
-          return { pointsModal: null };
-        });
-        toast(`${n > 0 ? '+' : ''}${n} баллов начислено. Участница получит уведомление с причиной.`);
+        const reason = pm.reason.trim();
+        void (async () => {
+          try {
+            await api.adjustPoints(pm.pid, mid, n, reason);
+            mut((d, s) => {
+              if (!s.mid) return;
+              const p = d[s.mid].participants.find((x) => x.id === pm.pid);
+              if (p) p.points += n;
+              const L = d[s.mid].ledger;
+              (L[pm.pid] = L[pm.pid] ?? []).unshift({ d: localDate('Asia/Bishkek'), delta: n, reason });
+              return { pointsModal: null };
+            });
+            toast(`${n > 0 ? '+' : ''}${n} баллов начислено. Участница получит уведомление с причиной.`);
+          } catch (err) {
+            set((s) => ({ pointsModal: s.pointsModal ? { ...s.pointsModal, err: errorText(err) } : null }));
+          }
+        })();
       },
 
       removeP: (id) => {
         const p = currentData(state).participants.find((x) => x.id === id);
-        if (!p) return;
+        const mid = state.mid;
+        if (!p || !mid) return;
         confirmAction(
           `Удалить ${p.name} из марафона?`,
           `Она перестанет получать напоминания и не сможет сдавать отчёты. ${p.points} баллов и история сохранятся в архиве. Бот отправит ей сообщение об исключении.`,
@@ -409,7 +1187,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               if (x) x.status = 'left';
               return { confirm: null, drawerId: null };
             });
-            toast(`${p.name} исключена из марафона`);
+            void (async () => {
+              if (await call(() => api.removeParticipant(id, mid), { reload: mid })) {
+                toast(`${p.name} исключена из марафона`);
+              }
+            })();
           },
         );
       },
@@ -423,50 +1205,101 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const csv = '﻿' + rows.map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(';')).join('\n');
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-        a.download = 'uchastnitsy-' + state.mid + '.csv';
+        a.download = 'uchastnitsy-' + (state.mid ?? 'marathon') + '.csv';
         a.click();
         URL.revokeObjectURL(a.href);
         toast(`CSV: ${rows.length - 1} строк`);
       },
 
+      /* ───────── рассылки ───────── */
+
       setBc: (k, v) => set((s) => ({ bc: { ...s.bc, [k]: v } })),
 
       /**
-       * Отправка идёт видимо долго: Telegram пропускает ~30 сообщений в секунду,
-       * поэтому мгновенного «Отправлено» здесь быть не может.
+       * Отправка идёт видимо долго: бот держит общий лимит 25 сообщений в
+       * секунду, поэтому прогресс настоящий — мы опрашиваем рассылку у бэкенда.
        */
       send: () => {
+        const mid = state.mid;
+        if (!mid) return;
         const segs = segments(state);
         const seg = segs.find((x) => x.id === state.bc.seg) ?? segs[0];
         if (!seg) return;
-        const n = seg.list.length;
-        set((s) => ({ bc: { ...s.bc, stage: 'sending', sent: 0, total: n } }));
 
-        window.clearInterval(sendTimer.current);
-        sendTimer.current = window.setInterval(() => {
-          setState((s) => {
-            const sent = Math.min(n, s.bc.sent + Math.max(1, Math.ceil(n / 8)));
-            if (sent < n) return { ...s, bc: { ...s.bc, sent } };
+        const text = state.bc.text;
+        const segment = toSegmentDto(state.bc.seg, state.bc.selIds);
+        const schedule = state.bc.when === 'now' ? { kind: 'now' } : { kind: 'tomorrow', at: '09:00' };
 
-            window.clearInterval(sendTimer.current);
-            const blockedList = seg.list.filter((p) => p.blocked);
-            const result = {
-              count: n,
-              delivered: n - blockedList.length,
-              blocked: blockedList.length,
-              blockedNames: blockedList.map((p) => p.name).join(', '),
-            };
-            const d = clone(s.data);
-            if (s.mid) {
-              d[s.mid].broadcasts.unshift({
-                id: uid(), at: 'сейчас', text: s.bc.text, seg: seg.name,
-                count: n, delivered: result.delivered, blocked: result.blocked,
-              });
+        set((s) => ({ bc: { ...s.bc, stage: 'sending', sent: 0, total: seg.list.length } }));
+
+        void (async () => {
+          try {
+            const { id, count } = await api.createBroadcast(mid, { text, segment, schedule });
+            set((s) => ({ bc: { ...s.bc, total: count } }));
+
+            // «Завтра 09:00» уйдёт без нас: показываем, что рассылка поставлена.
+            if (state.bc.when !== 'now') {
+              await reloadMarathon(mid);
+              set((s) => ({
+                ...s,
+                bc: { ...s.bc, stage: 'done', sent: count, result: { count, delivered: 0, blocked: 0, blockedNames: '' } },
+              }));
+              toast(`Рассылка поставлена на завтра 09:00 — ${count} ${plural(count, 'получатель', 'получателя', 'получателей')}`);
+              return;
             }
-            return { ...s, data: d, bc: { ...s.bc, stage: 'done', sent: n, result } };
-          });
-        }, 450);
+
+            window.clearInterval(pollTimer.current);
+            pollTimer.current = window.setInterval(() => {
+              void (async () => {
+                try {
+                  const p = await api.broadcastProgress(id);
+                  const blocked = (p.totals.blocked ?? 0) + (p.totals.failed ?? 0);
+                  const handled = (p.totals.sent ?? 0) + blocked;
+
+                  if (p.status === 'done' || (p.totals.pending ?? 0) === 0) {
+                    window.clearInterval(pollTimer.current);
+                    await reloadMarathon(mid);
+                    setState((s) => {
+                      const names = (s.data[mid]?.participants ?? [])
+                        .filter((x) => x.blocked && seg.list.some((y) => y.id === x.id))
+                        .map((x) => x.name)
+                        .join(', ');
+                      return {
+                        ...s,
+                        bc: {
+                          ...s.bc,
+                          stage: 'done',
+                          sent: count,
+                          result: { count, delivered: p.totals.sent ?? 0, blocked, blockedNames: names },
+                        },
+                      };
+                    });
+                  } else {
+                    setState((s) => ({ ...s, bc: { ...s.bc, sent: handled } }));
+                  }
+                } catch (err) {
+                  window.clearInterval(pollTimer.current);
+                  toast(errorText(err));
+                  setState((s) => ({ ...s, bc: { ...s.bc, stage: 'compose' } }));
+                }
+              })();
+            }, 1500);
+          } catch (err) {
+            toast(errorText(err));
+            set((s) => ({ bc: { ...s.bc, stage: 'compose' } }));
+          }
+        })();
       },
+
+      /* ───────── бот и пользователи ───────── */
+
+      setBot: (patch) => set((s) => ({ bot: { ...s.bot, ...patch }, ...startEdit(s, 'bot', 'bot') })),
+
+      setText: (key, lang, value) =>
+        set((s) => ({
+          texts: s.texts.map((x) => (x.key === key ? { ...x, [lang]: value } : x)),
+          ...startEdit(s, 'text', key),
+        })),
 
       saveBotName: () => {
         const draft = state.botDraft;
@@ -477,8 +1310,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Изменить имя',
           false,
           () => {
-            set((s) => ({ bot: { ...s.bot, name: draft }, botDraft: null, confirm: null }));
-            toast('Имя бота обновлено через Bot API');
+            set({ confirm: null });
+            void (async () => {
+              if (await call(() => api.setBotName(draft))) {
+                set((s) => ({ bot: { ...s.bot, name: draft }, botDraft: null }));
+                toast('Имя бота обновлено через Bot API');
+              }
+            })();
           },
         );
       },
@@ -486,20 +1324,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setRole: (id, role) => {
         const u = state.users.find((x) => x.id === id);
         if (!u || u.role === role) return;
-        const admins = state.users.filter((x) => x.role === 'admin').length;
-        if (id === meId(state)) {
-          toast('Свою роль поменять нельзя — попросите другого админа');
-          return;
-        }
-        if (u.role === 'admin' && admins <= 1) {
-          toast('В панели должен остаться хотя бы один админ');
-          return;
-        }
-        set((s) => ({
-          users: s.users.map((x) => (x.id === id ? { ...x, role } : x)),
-          audit: logAudit(s, `Изменила роль: ${u.name} — теперь ${role === 'admin' ? 'админ' : 'куратор'}`),
-        }));
-        toast(role === 'admin' ? `${u.name} теперь админ — видит и «Пользователей»` : `${u.name} теперь куратор — всё, кроме «Пользователей»`);
+        void (async () => {
+          try {
+            await api.setUserRole(id, role);
+            await reloadGlobal();
+            toast(role === 'admin' ? `${u.name} теперь админ — видит и «Пользователей»` : `${u.name} теперь куратор — всё, кроме «Пользователей»`);
+          } catch (err) {
+            toast(errorText(err));
+          }
+        })();
       },
 
       removeUser: (id) => {
@@ -511,8 +1344,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Отключить',
           true,
           () => {
-            set((s) => ({ users: s.users.filter((x) => x.id !== id), confirm: null, audit: logAudit(s, `Отключила доступ: ${u.name}`) }));
-            toast(`Доступ ${u.name} отключён`);
+            set({ confirm: null });
+            void (async () => {
+              try {
+                await api.disableUser(id);
+                await reloadGlobal();
+                toast(`Доступ ${u.name} отключён`);
+              } catch (err) {
+                toast(errorText(err));
+              }
+            })();
           },
         );
       },
@@ -529,15 +1370,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (tg[0] !== '@') tg = '@' + tg;
         if (state.users.some((u) => u.tg.toLowerCase() === tg.toLowerCase())) return bad(tg + ' уже есть в списке');
 
-        set((s) => ({
-          users: [...s.users, { id: uid(), name, tg, role: iv.role, last: '', invited: true }],
-          invite: null,
-          audit: logAudit(s, `Добавила ${name} (${tg}) как ${iv.role === 'admin' ? 'админа' : 'куратора'}`),
-        }));
-        toast(`${name} добавлена. Пусть войдёт в панель через Telegram — доступ откроется сразу.`);
+        void (async () => {
+          try {
+            await api.addUser({ name, tgUsername: tg.slice(1), role: iv.role });
+            await reloadGlobal();
+            set({ invite: null });
+            toast(`${name} добавлена. Пусть войдёт в панель через Telegram — доступ откроется сразу.`);
+          } catch (err) {
+            bad(errorText(err));
+          }
+        })();
       },
     };
-  }, [state, set, toast]);
+    return actions;
+  }, [state, set, toast, bootstrap, reloadGlobal, reloadMarathon, undoEdit]);
 
   return (
     <StateCtx.Provider value={state}>

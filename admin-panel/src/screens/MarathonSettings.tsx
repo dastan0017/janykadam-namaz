@@ -138,6 +138,40 @@ export function MarathonSettings() {
         </ol>
       </section>
 
+      {/* Правила — часть входа: без согласия участница в марафон не попадает */}
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <div className="h-card">Правила марафона</div>
+          <div className="hint">
+            Бот показывает их по ссылке до записи и ждёт «Согласна» — без этого участницы в марафоне не будет. Оставьте поля пустыми, и покажутся общие
+            правила для всех марафонов: они лежат в «Текстах бота» под ключом <span className="mono">marathon_rules</span>.
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
+          <Field label="Кыргызча" counter={`${m.rulesKg.length} / 4096`}>
+            <textarea
+              rows={8}
+              className="textarea"
+              value={m.rulesKg}
+              onChange={(e) => setM('rulesKg', e.target.value)}
+              placeholder="Пусто — общие правила"
+            />
+          </Field>
+          <Field label="По-русски" counter={`${m.rulesRu.length} / 4096`}>
+            <textarea
+              rows={8}
+              className="textarea"
+              value={m.rulesRu}
+              onChange={(e) => setM('rulesRu', e.target.value)}
+              placeholder="Пусто — общие правила"
+            />
+          </Field>
+        </div>
+        {m.rulesKg || m.rulesRu ? (
+          <div className="hint-sm">Свои правила у этого марафона. Если заполнен только один язык, на втором покажутся эти же.</div>
+        ) : null}
+      </section>
+
       <section className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
         <div style={{ gridColumn: '1/-1' }} className="h-card">
           Баллы и серии

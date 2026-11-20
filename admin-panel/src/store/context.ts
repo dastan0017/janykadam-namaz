@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import type { AppState, Marathon, Question, Role, Screen } from '../types';
+import type { TelegramAuthPayload } from '../api/dto';
+import type { AppState, BotSettings, LinkCheck, Marathon, Question, Role, Screen } from '../types';
 
 export type Patch = Partial<AppState>;
 export type Updater = (s: AppState) => Patch;
@@ -10,14 +11,34 @@ export interface Actions {
   toast: (msg: string) => void;
   setRoleView: (role: Role) => void;
 
+  // форма: правки уходят на бэкенд по кнопке, а не сами собой
+  saveEdit: () => void;
+  undoEdit: () => void;
+  /** Выполнить действие, спросив про несохранённую форму. */
+  leaveForm: (then: () => void) => void;
+
+  // вход
+  loginWithTelegram: (payload: TelegramAuthPayload) => Promise<void>;
+  logout: () => void;
+
   // марафоны
   switchM: (id: string) => void;
+  /** Открывает форму нового марафона; с `fromId` — копии этого марафона. */
+  openNewM: (fromId?: string) => void;
   duplicate: (id: string) => void;
   createM: () => void;
   deleteM: (id: string) => void;
   copyLink: (id: string) => void;
   setM: <K extends keyof Marathon>(k: K, v: Marathon[K]) => void;
   launch: () => void;
+
+  // канал отчётов
+  /** Проверка ссылки на канал; null — бэкенд не ответил. */
+  checkChannelLink: (link: string) => Promise<LinkCheck | null>;
+  loadChannel: (id: string) => Promise<void>;
+  saveChannelLink: (link: string) => Promise<boolean>;
+  connectChannel: (chatId: string) => void;
+  disconnectChannel: () => void;
 
   // темы
   setT: (k: string, v: unknown) => void;
@@ -52,6 +73,8 @@ export interface Actions {
   send: () => void;
 
   // бот и пользователи
+  setBot: (patch: Partial<BotSettings>) => void;
+  setText: (key: string, lang: 'ru' | 'kg', value: string) => void;
   saveBotName: () => void;
   setRole: (uid: string, role: Role) => void;
   removeUser: (uid: string) => void;

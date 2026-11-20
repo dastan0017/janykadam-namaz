@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: janykadam
+      POSTGRES_PASSWORD: janykadam
+      POSTGRES_DB: janykadam
+      TZ: UTC
+    ports:
+      # Наружу порт нужен только для отладки, и 5433 на машине разработчика
+      # может быть занят: DB_PORT=5434 docker compose up -d db
+      - '${DB_PORT:-5433}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U janykadam']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      NODE_ENV: production
+      DATABASE_URL: postgres://janykadam:janykadam@db:5432/janykadam
+    # .env необязателен: в проде переменные обычно приходят из окружения.
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      # Порт наружу тоже настраивается: 3000 часто занят другим проектом.
+      - '${APP_PORT:-3000}:3000'
+    restart: unless-stopped
+
+volumes:
+  pgdata:

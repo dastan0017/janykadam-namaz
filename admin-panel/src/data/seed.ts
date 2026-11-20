@@ -1,4 +1,30 @@
 import type { AppState, Participant, ParticipantStatus, Topic, TzKey } from '../types';
+import { setPrayerPresets } from './constants';
+import { initialState } from './initial';
+import { localDate, shiftDay } from '../lib/time';
+
+/**
+ * Фикстуры для разработки без бэкенда (`VITE_USE_SEED=true`).
+ * Это не источник данных панели: с живым ботом всё приходит из API.
+ */
+
+/** Сегодня по Бишкеку — «новые сегодня» в фикстурах должны оставаться новыми. */
+const TODAY = localDate('Asia/Bishkek');
+/** Демо-марафон всегда идёт двадцатый день из тридцати — какой бы ни была дата. */
+const M5_START = shiftDay(TODAY, -19);
+const M5_END = shiftDay(M5_START, 29);
+/** Черновик — следующий поток, через пару недель. */
+const M6_START = shiftDay(TODAY, 12);
+
+/** Время намазов прототипа: с бэкендом его отдаёт `/api/prayer/presets`. */
+const SEED_PRESETS = [
+  { tz: 'Asia/Bishkek', city: 'Бишкек', pt: { fajr: 379, sunrise: 464, dhuhr: 765, asr: 963, maghrib: 1066, isha: 1146 } },
+  { tz: 'Asia/Almaty', city: 'Алматы', pt: { fajr: 310, sunrise: 396, dhuhr: 696, asr: 893, maghrib: 996, isha: 1077 } },
+  { tz: 'Europe/Moscow', city: 'Москва', pt: { fajr: 356, sunrise: 470, dhuhr: 733, asr: 883, maghrib: 996, isha: 1102 } },
+  { tz: 'Europe/Istanbul', city: 'Стамбул', pt: { fajr: 380, sunrise: 463, dhuhr: 768, asr: 971, maghrib: 1072, isha: 1150 } },
+  { tz: 'Asia/Seoul', city: 'Сеул', pt: { fajr: 345, sunrise: 424, dhuhr: 736, asr: 948, maghrib: 1047, isha: 1121 } },
+  { tz: 'America/New_York', city: 'Нью-Йорк', pt: { fajr: 312, sunrise: 395, dhuhr: 700, asr: 903, maghrib: 1004, isha: 1082 } },
+];
 
 const topic = (o: Partial<Topic> & Pick<Topic, 'id' | 'nameKg'>): Topic => ({
   emoji: '🕊',
@@ -28,7 +54,7 @@ const participant = (
   last: number,
   today: string[],
   extra: Partial<Participant> = {},
-): Participant => ({ id, name, user, tz, status, points, streak, last, today, lang: 'kg', blocked: false, joined: '20 окт', d7: true, ...extra });
+): Participant => ({ id, name, user, tz, place: tz.split('/').pop()?.replace(/_/g, ' ') ?? '', status, points, streak, last, today, lang: 'kg', blocked: false, joined: M5_START, d7: true, goal: '', rulesAt: M5_START, ...extra });
 
 /** Свои темы марафона. Намазы (t1–t6, t11) — в фиксированной библиотеке NAMAZ. */
 const topics5 = (): Topic[] => [
@@ -61,28 +87,28 @@ const topics5 = (): Topic[] => [
 const ALL_NAMAZ = ['t1', 't2', 't3', 't4', 't5', 't6', 't11'];
 
 const parts5 = (): Participant[] => [
-  participant('p1', 'Айжан Турдубекова', '@aijan_t', 'bishkek', 'active', 412, 19, 0, ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't10']),
-  participant('p2', 'Нургүл Асанова', '@nurgul_a', 'bishkek', 'active', 388, 12, 0, ['t2', 't3', 't4', 't5', 't6', 't10']),
-  participant('p3', 'Мээрим Сыдыкова', '@meerim_s', 'osh', 'active', 301, 4, 0, ['t2', 't3', 't4', 't5', 't6']),
-  participant('p4', 'Жылдыз Бакирова', '@jyldyz_b', 'bishkek', 'active', 356, 0, 1, []),
-  participant('p5', 'Айпери Токтосунова', '@aiperi_t', 'bishkek', 'active', 402, 20, 0, ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10', 't12']),
-  participant('p6', 'Гүлзат Мамбетова', '@gulzat_m', 'moscow', 'active', 214, 0, 4, [], { lang: 'ru' }),
-  participant('p7', 'Алтынай Осмонова', '@altynai_o', 'istanbul', 'active', 377, 9, 0, ['t2', 't3', 't4', 't5', 't6', 't9']),
-  participant('p8', 'Чолпон Эсенова', '@cholpon_e', 'seoul', 'active', 165, 0, 6, [], { d7: false }),
-  participant('p9', 'Бегимай Абдылдаева', '@begimai_a', 'bishkek', 'active', 340, 7, 0, ['t2', 't3', 't4', 't5', 't6', 't10', 't11']),
-  participant('p10', 'Айдана Жумабекова', '@aidana_j', 'almaty', 'active', 395, 15, 0, ['t2', 't3', 't4', 't5', 't6', 't7']),
-  participant('p11', 'Назира Калыкова', '@nazira_k', 'bishkek', 'paused', 120, 0, 9, [], { blocked: true, lang: 'ru' }),
-  participant('p12', 'Элнура Шералиева', '@elnura_sh', 'bishkek', 'left', 48, 0, 15, [], { d7: false }),
-  participant('p13', 'Сезим Кадырбекова', '@sezim_k', 'moscow', 'active', 10, 1, 0, ['t2'], { joined: '8 ноя', d7: false }),
-  participant('p14', 'Айсулуу Маратова', '@aisuluu_m', 'bishkek', 'active', 5, 1, 0, ['t8'], { joined: '8 ноя', d7: false }),
+  participant('p1', 'Айжан Турдубекова', '@aijan_t', 'Asia/Bishkek', 'active', 412, 19, 0, ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't10']),
+  participant('p2', 'Нургүл Асанова', '@nurgul_a', 'Asia/Bishkek', 'active', 388, 12, 0, ['t2', 't3', 't4', 't5', 't6', 't10']),
+  participant('p3', 'Мээрим Сыдыкова', '@meerim_s', 'Asia/Bishkek', 'active', 301, 4, 0, ['t2', 't3', 't4', 't5', 't6']),
+  participant('p4', 'Жылдыз Бакирова', '@jyldyz_b', 'Asia/Bishkek', 'active', 356, 0, 1, []),
+  participant('p5', 'Айпери Токтосунова', '@aiperi_t', 'Asia/Bishkek', 'active', 402, 20, 0, ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 't10', 't12']),
+  participant('p6', 'Гүлзат Мамбетова', '@gulzat_m', 'Europe/Moscow', 'active', 214, 0, 4, [], { lang: 'ru' }),
+  participant('p7', 'Алтынай Осмонова', '@altynai_o', 'Europe/Istanbul', 'active', 377, 9, 0, ['t2', 't3', 't4', 't5', 't6', 't9']),
+  participant('p8', 'Чолпон Эсенова', '@cholpon_e', 'Asia/Seoul', 'active', 165, 0, 6, [], { d7: false }),
+  participant('p9', 'Бегимай Абдылдаева', '@begimai_a', 'Asia/Bishkek', 'active', 340, 7, 0, ['t2', 't3', 't4', 't5', 't6', 't10', 't11']),
+  participant('p10', 'Айдана Жумабекова', '@aidana_j', 'Asia/Almaty', 'active', 395, 15, 0, ['t2', 't3', 't4', 't5', 't6', 't7']),
+  participant('p11', 'Назира Калыкова', '@nazira_k', 'Asia/Bishkek', 'paused', 120, 0, 9, [], { blocked: true, lang: 'ru' }),
+  participant('p12', 'Элнура Шералиева', '@elnura_sh', 'Asia/Bishkek', 'left', 48, 0, 15, [], { d7: false }),
+  participant('p13', 'Сезим Кадырбекова', '@sezim_k', 'Europe/Moscow', 'active', 10, 1, 0, ['t2'], { joined: TODAY, d7: false }),
+  participant('p14', 'Айсулуу Маратова', '@aisuluu_m', 'Asia/Bishkek', 'active', 5, 1, 0, ['t8'], { joined: TODAY, d7: false }),
 ];
 
 const parts4 = (): Participant[] => [
-  participant('p41', 'Айгүл Бейшенова', '@aigul_b', 'bishkek', 'finished', 598, 0, 0, []),
-  participant('p42', 'Салтанат Иманова', '@saltanat_i', 'bishkek', 'finished', 541, 0, 0, []),
-  participant('p43', 'Динара Кадырова', '@dinara_k', 'moscow', 'finished', 467, 0, 0, []),
-  participant('p44', 'Асел Мураталиева', '@asel_m', 'bishkek', 'finished', 612, 0, 0, []),
-  participant('p45', 'Нуриза Жолдошева', '@nuriza_j', 'bishkek', 'left', 90, 0, 0, []),
+  participant('p41', 'Айгүл Бейшенова', '@aigul_b', 'Asia/Bishkek', 'finished', 598, 0, 0, []),
+  participant('p42', 'Салтанат Иманова', '@saltanat_i', 'Asia/Bishkek', 'finished', 541, 0, 0, []),
+  participant('p43', 'Динара Кадырова', '@dinara_k', 'Europe/Moscow', 'finished', 467, 0, 0, []),
+  participant('p44', 'Асел Мураталиева', '@asel_m', 'Asia/Bishkek', 'finished', 612, 0, 0, []),
+  participant('p45', 'Нуриза Жолдошева', '@nuriza_j', 'Asia/Bishkek', 'left', 90, 0, 0, []),
 ];
 
 const marathonDefaults = {
@@ -96,27 +122,57 @@ const marathonDefaults = {
   remindMorning: '05:30',
   remindEvening: '21:00',
   skipSubmitted: true,
+  rulesKg: '',
+  rulesRu: '',
+  channel: {
+    link: 'https://t.me/+DemoChannelHash1',
+    chatId: '-1001234567890',
+    title: 'Үммөттүн кызы — отчёттор',
+    inviteLink: 'https://t.me/+DemoBotJoinLink1',
+    rights: { admin: true, post: true, invite: true, restrict: true },
+    isPrivate: true,
+    protectedContent: true,
+    ready: true,
+  },
 };
 
 export function seed(): AppState {
   const t5 = topics5();
   const topics6: Topic[] = [clone(t5[0]), topic({ id: 't13', emoji: '🤲', nameKg: 'Садака', nameRu: '', points: 5 })];
 
+  setPrayerPresets(SEED_PRESETS);
+
   return {
+    ...initialState(),
+    auth: 'ready',
+    me: { id: 'u1', name: 'Жазгүл Аманова', tg: '@jazgul', role: 'admin' },
+    loaded: ['m4', 'm5', 'm6'],
     role: 'admin',
     screen: 'overview',
     mid: 'm5',
     navOpen: false,
     marathons: [
       { id: 'm4', code: 'm4', name: 'Рамазан 2026', status: 'finished', start: '2026-02-18', end: '2026-03-19', regOpen: false, reported: 412, ...marathonDefaults },
-      { id: 'm5', code: 'm5', name: 'Үммөттүн кызы', status: 'running', start: '2026-10-20', end: '2026-11-18', regOpen: true, ...marathonDefaults },
-      { id: 'm6', code: 'm6', name: 'Кыш марафону', status: 'draft', start: '2026-11-01', end: '2026-11-30', regOpen: true, ...marathonDefaults },
+      { id: 'm5', code: 'm5', name: 'Үммөттүн кызы', status: 'running', start: M5_START, end: M5_END, regOpen: true, ...marathonDefaults },
+      {
+        id: 'm6', code: 'm6', name: 'Кыш марафону', status: 'draft', start: M6_START, end: shiftDay(M6_START, 29), regOpen: true, ...marathonDefaults,
+        // Черновик: канал создан, бота в него ещё не добавили — видны шаги настройки.
+        channel: {
+          ...marathonDefaults.channel,
+          link: 'https://t.me/+DemoKyshChannel1',
+          chatId: null,
+          title: '',
+          inviteLink: null,
+          rights: { admin: false, post: false, invite: false, restrict: false },
+          ready: false,
+        },
+      },
     ],
     data: {
       m4: {
         topics: clone(t5), namaz: [...ALL_NAMAZ], participants: parts4(),
         trend: [62, 70, 74, 78, 80, 79, 81, 83, 80, 82, 84, 83, 81, 85, 86, 84, 83, 85, 87, 86, 84, 83, 85, 86, 88, 87, 86, 85, 88, 90],
-        ledger: {}, broadcasts: [],
+        ledger: {}, recent: {}, broadcasts: [],
       },
       m5: {
         topics: t5, namaz: [...ALL_NAMAZ], participants: parts5(),
@@ -134,12 +190,13 @@ export function seed(): AppState {
           ],
           p13: [{ d: '8 ноя', delta: 10, reason: 'Багымдат — первый отчёт сразу после регистрации' }],
         },
+        recent: {},
         broadcasts: [
           { id: 'b1', at: '7 ноя, 21:00', text: 'Жума күнүңүз кут болсун! Эртең жумалык жыйынтык чыгат.', seg: 'Все активные', count: 10, delivered: 9, blocked: 1 },
           { id: 'b2', at: '3 ноя, 09:00', text: 'Бүгүн Спорт темасы боюнча окно 06:00–22:00.', seg: 'Не сдали сегодня', count: 4, delivered: 4, blocked: 0 },
         ],
       },
-      m6: { topics: topics6, namaz: ['t2'], participants: [], trend: [], ledger: {}, broadcasts: [] },
+      m6: { topics: topics6, namaz: ['t2'], participants: [], trend: [], ledger: {}, recent: {}, broadcasts: [] },
     },
     users: [
       { id: 'u1', name: 'Жазгүл Аманова', tg: '@jazgul_a', role: 'admin', last: 'сейчас' },
@@ -173,27 +230,29 @@ export function seed(): AppState {
       { key: 'streak_bonus', ru: '{дней} дней подряд — +{бонус} баллов.', kg: '{дней} күн катары менен — +{бонус} балл.', ph: '{дней} {бонус}' },
       { key: 'paused', ru: 'Пауза включена до {дата}. Напоминания не приходят, баллы не снимаются.', kg: 'Пауза {дата} чейин күйгүзүлдү. Эскертүүлөр келбейт, балл алынбайт.', ph: '{дата}' },
       { key: 'two_marathons_prefix', ru: '[{марафон}] ', kg: '[{марафон}] ', ph: '{марафон}' },
-      { key: 'help', ru: '/otchet — что можно сдать сейчас · /ball — мои баллы · /zona — часовой пояс · /marafon — сменить марафон · /pauza — пауза', kg: '/otchet — азыр эмне тапшырса болот · /ball — менин баллдарым · /zona — убакыт алкагы · /marafon — марафон алмаштыруу · /pauza — пауза', ph: '' },
+      { key: 'help', ru: '/otchet — что можно сдать сейчас · /ball — мои баллы · /zona — место и время · /marafon — сменить марафон · /pauza — пауза · /tahajjud — напоминания о Тахаджуде · /til — язык', kg: '/otchet — азыр эмне тапшырса болот · /ball — менин баллдарым · /zona — жер жана убакыт · /marafon — марафон алмаштыруу · /pauza — пауза · /tahajjud — Тахажуд эскертүүлөрү · /til — тил', ph: '' },
     ],
     bot: {
       username: 'janykadam_bot',
       name: 'Janykadam · марафондор',
       desc: 'Жаңы Кадам жамаатынын марафон боту. Күн сайын видеокружок менен отчёт тапшырып, рухий тартипти бекемдеңиз.',
       shortDesc: 'Марафондор боту Janykadam',
-      commands: '/otchet — что можно сдать сейчас\n/ball — мои баллы\n/zona — часовой пояс\n/marafon — сменить марафон\n/pauza — пауза\n/help — помощь',
-      menu: ['🎥 Отчёт тапшыруу', '⭐ Баллдарым', '🕐 Убакыт алкагы', '❓ Жардам'],
+      commands: '/otchet — что можно сдать сейчас\n/ball — мои баллы\n/zona — место и время\n/marafon — сменить марафон\n/pauza — пауза\n/tahajjud — напоминания о Тахаджуде\n/til — язык\n/help — помощь',
+      menu: ['🎥 Отчёт тапшыруу', '✅ Отчётторум', '🤲 Максаттарым', '😎 Өзүм жөнүндө', '🕐 Убакыт алкагы', '❓ Жардам'],
       quietFrom: '22:30',
       quietTo: '04:30',
-      capPerDay: 6,
+      capPerDay: 0,
     },
     botDraft: null,
+    edit: null,
     topicId: null,
     topicTab: 'settings',
     qId: null,
     pvLang: 'kg',
     pvDone: false,
-    tzView: 'bishkek',
-    pf: { q: '', status: 'all', tz: 'all', act: 'all', sort: 'name', dir: 1, sel: [] },
+    tzView: 'Asia/Bishkek',
+    // Таблица участниц открывается на активных — вкладка «Все» рядом.
+    pf: { q: '', status: 'active', tz: 'all', act: 'all', sort: 'name', dir: 1, sel: [] },
     drawerId: null,
     pointsModal: null,
     confirm: null,

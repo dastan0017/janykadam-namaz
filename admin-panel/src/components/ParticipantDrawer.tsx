@@ -1,7 +1,7 @@
-import { NAMAZ, TODAY_LABEL } from '../data/constants';
-import { currentData } from '../lib/derive';
+import { NAMAZ } from '../data/constants';
+import { currentData, isNewToday } from '../lib/derive';
 import { plural } from '../lib/format';
-import { fmt, localNow, nsTopic, openNow, tzLabel, winStr } from '../lib/time';
+import { dayLabel, fmt, localDate, localNow, nsTopic, openNow, placeLabel, shiftDay, winStr } from '../lib/time';
 import { useActions, useAppState } from '../store/context';
 import { ParticipantPill } from './ui';
 
@@ -21,27 +21,29 @@ export function ParticipantDrawer() {
     return { id: n.id, name: n.emoji + ' ' + n.nameKg, win: winStr(t, p.tz), open: openNow(t, p.tz) };
   });
 
+  // Отчёты за неделю приходят из API вместе с карточкой; пока их нет —
+  // показываем прочерк, а не выдуманные числа.
+  const byDay = d.recent[p.id];
+  const today = localDate(p.tz);
   const timeline = [0, 1, 2, 3, 4, 5, 6].map((i) => {
-    const done =
-      i === 0
-        ? p.today.length
-        : p.joined === TODAY_LABEL
-          ? 0
-          : p.status === 'active' && i >= p.last && !(i % 5 === 3 && p.streak < 10)
-            ? 5 + (i % 3)
-            : 0;
+    const day = shiftDay(today, -i);
+    const done = byDay ? (byDay[day] ?? 0) : null;
     return {
       id: i,
-      day: i === 0 ? 'Сегодня' : i === 1 ? 'Вчера' : 8 - i + ' ноя',
-      n: done ? `${done} ${plural(done, 'отчёт', 'отчёта', 'отчётов')}` : p.joined === TODAY_LABEL && i > 0 ? 'ещё не участвовала' : 'нет отчётов',
-      done: done > 0,
+      day: i === 0 ? 'Сегодня' : i === 1 ? 'Вчера' : dayLabel(day),
+      n:
+        done === null
+          ? '—'
+          : done
+            ? `${done} ${plural(done, 'отчёт', 'отчёта', 'отчётов')}`
+            : isNewToday(p) && i > 0
+              ? 'ещё не участвовала'
+              : 'нет отчётов',
+      done: !!done,
     };
   });
 
-  const ledger = d.ledger[p.id] ?? [
-    { d: '7 ноя', delta: 10, reason: 'Куптан — отчёт принят' },
-    { d: '7 ноя', delta: 10, reason: 'Багымдат — отчёт принят' },
-  ];
+  const ledger = d.ledger[p.id] ?? [];
 
   const togglePause = () => {
     setP(p.id, 'status', p.status === 'paused' ? 'active' : 'paused');
@@ -56,7 +58,7 @@ export function ParticipantDrawer() {
           <div>
             <div style={{ fontSize: 17, fontWeight: 700 }}>{p.name}</div>
             <div className="sub">
-              {p.user} · {tzLabel(p.tz)} · язык: {p.lang === 'kg' ? 'кыргызский' : 'русский'} · с {p.joined}
+              {p.user} · {placeLabel(p.place, p.tz)} · язык: {p.lang === 'kg' ? 'кыргызский' : 'русский'} · с {dayLabel(p.joined)}
             </div>
           </div>
           <button type="button" className="icon-btn" aria-label="Закрыть" onClick={close}>
@@ -79,6 +81,23 @@ export function ParticipantDrawer() {
               <ParticipantPill status={p.status} />
             </div>
           </div>
+        </div>
+
+        {/* Цель — её слова при записи: с ней разговор куратора звучит иначе */}
+        {p.goal ? (
+          <div className="card" style={{ padding: '10px 12px', background: 'var(--bg)' }}>
+            <div className="overline" style={{ marginBottom: 4 }}>
+              🤲 Цель в марафоне
+            </div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{p.goal}</div>
+          </div>
+        ) : (
+          <div className="sub">🤲 Цель не записана — бот спрашивает её при входе в марафон.</div>
+        )}
+
+        {/* Правила — обязательства с штрафом, поэтому дата согласия на виду */}
+        <div className="sub">
+          {p.rulesAt ? `📜 Правила приняты ${dayLabel(p.rulesAt)}` : '📜 Правила приняты до того, как бот стал их спрашивать'}
         </div>
 
         {p.blocked ? (

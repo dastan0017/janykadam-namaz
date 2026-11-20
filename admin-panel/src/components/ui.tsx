@@ -1,5 +1,6 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { ICONS, PSTATUS, STATUS } from '../data/constants';
+import type { PagerState } from '../lib/paged';
 import type { MarathonStatus, ParticipantStatus } from '../types';
 
 /* ───────── Иконка ───────── */
@@ -100,6 +101,8 @@ export function Field({
 export interface SegmentOption<T extends string> {
   id: T;
   label: string;
+  /** Сколько записей во вкладке — серым числом после надписи. */
+  count?: number;
 }
 
 export function Segmented<T extends string>({
@@ -120,6 +123,7 @@ export function Segmented<T extends string>({
       {options.map((o) => (
         <button key={o.id} type="button" aria-pressed={value === o.id} onClick={() => onChange(o.id)}>
           {o.label}
+          {o.count !== undefined ? <span className="seg-count">{o.count}</span> : null}
         </button>
       ))}
     </div>
@@ -204,6 +208,40 @@ export function ConfirmDialog({
   );
 }
 
+/* ───────── Полоса сохранения ───────── */
+
+/**
+ * Правки формы ждут этой кнопки. Полоса липнет к низу экрана и появляется
+ * только когда есть что сохранять — пустая строка внизу ничего не сообщает.
+ */
+export function SaveBar({ saving, onSave, onUndo }: { saving: boolean; onSave: () => void; onUndo: () => void }) {
+  // Ctrl/⌘+S — привычка из любого редактора.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        onSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onSave]);
+
+  return (
+    <div className="savebar" role="region" aria-label="Несохранённые изменения">
+      <span style={{ fontWeight: 600 }}>Несохранённые изменения</span>
+      <span className="hint savebar-hint">Пока не сохраните, бот работает по-старому</span>
+      <div className="grow" />
+      <button type="button" className="btn-secondary" onClick={onUndo} disabled={saving}>
+        Отменить
+      </button>
+      <button type="button" className="btn" onClick={onSave} disabled={saving}>
+        {saving ? 'Сохраняю…' : 'Сохранить'}
+      </button>
+    </div>
+  );
+}
+
 /* ───────── Тост ───────── */
 
 export function Toast({ text }: { text: string }) {
@@ -221,5 +259,30 @@ export function Bar({ pct, color, height, radius }: { pct: number; color?: strin
     <span className={'bar-track' + (radius === 'pill' ? ' bar-track-pill' : '')} style={{ height }}>
       <span className="bar-fill" style={{ width: Math.max(0, Math.min(100, pct)) + '%', background: color }} />
     </span>
+  );
+}
+
+/* ───────── Страницы ───────── */
+
+/** Переключатель страниц. На одной странице не показывается. */
+export function Pager({ page, pages, from, to, total, onPage }: PagerState) {
+  if (pages <= 1) return null;
+
+  return (
+    <nav className="pager" aria-label="Страницы">
+      <span className="sub">
+        {from + 1}–{to} из {total}
+      </span>
+      <div className="grow" />
+      <button type="button" className="btn-secondary btn-sm" onClick={() => onPage(page - 1)} disabled={page === 0}>
+        Назад
+      </button>
+      <span className="sub nums" aria-live="polite">
+        {page + 1} / {pages}
+      </span>
+      <button type="button" className="btn-secondary btn-sm" onClick={() => onPage(page + 1)} disabled={page >= pages - 1}>
+        Вперёд
+      </button>
+    </nav>
   );
 }

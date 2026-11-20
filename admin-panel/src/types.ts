@@ -14,6 +14,7 @@ export type Screen =
   | 'broadcasts'
   | 'analytics'
   | 'settings'
+  | 'channel'
   | 'namaz'
   | 'texts'
   | 'bot'
@@ -23,12 +24,13 @@ export type Screen =
 export type MarathonStatus = 'draft' | 'recruiting' | 'running' | 'finished' | 'archive';
 export type ParticipantStatus = 'active' | 'paused' | 'left' | 'finished';
 export type Lang = 'kg' | 'ru';
-export type TzKey = 'bishkek' | 'osh' | 'almaty' | 'moscow' | 'istanbul' | 'seoul' | 'newyork';
+/** Пояс — зона IANA, как её хранит бот: `Asia/Bishkek`. Любая, не только пресет. */
+export type TzKey = string;
 export type QuestionType = 'single' | 'multi' | 'text' | 'number' | 'scale' | 'yesno';
 export type Frequency = 'daily' | 'weekly';
 
 /** Якорь окна намаза: имя времени намаза + смещение в минутах. */
-export type PrayerAnchor = 'fajr' | 'sunrise' | 'dhuhr' | 'asr' | 'maghrib' | 'isha' | 'midnight' | 'fixed';
+export type PrayerAnchor = 'fajr' | 'sunrise' | 'dhuhr' | 'asr' | 'maghrib' | 'isha' | 'nextFajr' | 'midnight' | 'fixed';
 export type AnchorSpec = readonly [PrayerAnchor, number];
 
 export interface AnswerOption {
@@ -105,21 +107,29 @@ export interface Participant {
   name: string;
   user: string;
   tz: TzKey;
+  /** Название места из бота: зоны мало, Бишкек и Ош расходятся на 5–15 минут. */
+  place: string;
   status: ParticipantStatus;
   points: number;
   streak: number;
-  /** Дней без отчёта: 0 — сдала сегодня. */
+  /** Дней без отчёта: 0 — сдала сегодня, 99 — не сдавала ни разу. */
   last: number;
-  /** Id тем, сданных сегодня. */
+  /** Id тем, сданных сегодня по её местной дате. */
   today: string[];
   lang: Lang;
   blocked: boolean;
+  /** Местная дата входа в марафон, `YYYY-MM-DD`. */
   joined: string;
   /** Дошла до седьмого дня — для воронки. */
   d7: boolean;
+  /** Зачем пришла в марафон — её слова из бота. Пусто, если не ответила. */
+  goal: string;
+  /** Дата согласия с правилами, `YYYY-MM-DD`. Пусто — согласия нет. */
+  rulesAt: string;
 }
 
 export interface LedgerEntry {
+  /** Дата начисления, `YYYY-MM-DD`. */
   d: string;
   delta: number;
   reason: string;
@@ -153,8 +163,64 @@ export interface Marathon {
   remindMorning: string;
   remindEvening: string;
   skipSubmitted: boolean;
+  /** Свои правила марафона. Пусто — действуют общие из текстов бота. */
+  rulesKg: string;
+  rulesRu: string;
+  /** Канал отчётов: туда бот выкладывает видео и впускает участниц. */
+  channel: ChannelSummary;
   /** Итоговое число участниц завершённого марафона. */
   reported?: number;
+  /**
+   * Сводка из списка марафонов. Нужна экрану «Все марафоны»: данные загружаются
+   * по одному марафону, а карточки показывают все сразу.
+   */
+  stats?: { total: number; active: number; submittedToday: number; pct: number };
+  namazCount?: number;
+  topicsCount?: number;
+}
+
+/** Права бота в канале отчётов. */
+export interface ChannelRights {
+  admin: boolean;
+  post: boolean;
+  invite: boolean;
+  restrict: boolean;
+}
+
+/** Что панель знает о канале марафона. */
+export interface ChannelSummary {
+  /** Ссылка, которую вставил админ. */
+  link: string;
+  /** Канал, где бот уже админ; null — бота ещё не добавили. */
+  chatId: string | null;
+  title: string;
+  /** Ссылка с заявкой, которую бот рассылает участницам. */
+  inviteLink: string | null;
+  rights: ChannelRights;
+  isPrivate: boolean;
+  protectedContent: boolean;
+  /** Бот публикует отчёты и впускает участниц. */
+  ready: boolean;
+}
+
+/** Проверка вставленной ссылки: канал ли это (по странице t.me). */
+export interface LinkCheck {
+  link: string | null;
+  kind: 'channel' | 'group' | 'missing' | 'other' | 'unknown' | 'invalid';
+  /** Можно сохранять: канал или «не удалось проверить». */
+  ok: boolean;
+  title?: string;
+  /** «2 subscribers» — как написал Telegram. */
+  extra?: string;
+  message: string;
+}
+
+/** Живое состояние канала со страницы «Канал отчётов». */
+export interface ChannelStatus extends ChannelSummary {
+  counts: { total: number; invited: number; joined: number };
+  /** Каналы, где бот уже админ, но ссылка не совпала: «это ваш?» */
+  candidates: { chatId: string; title: string; username: string | null }[];
+  checkedAt: string;
 }
 
 export interface MarathonData {
@@ -165,6 +231,8 @@ export interface MarathonData {
   /** Доля сдавших по дням, в процентах. */
   trend: number[];
   ledger: Record<string, LedgerEntry[]>;
+  /** Отчёты участницы за последнюю неделю: ключ дня → сколько сдано. */
+  recent: Record<string, Record<string, number>>;
   broadcasts: Broadcast[];
 }
 
@@ -181,6 +249,16 @@ export interface AuditEntry {
   at: string;
   who: string;
   what: string;
+}
+
+/** Состояние входа: пока идёт проверка сессии, панель не рендерится. */
+export type AuthState = 'checking' | 'anonymous' | 'ready';
+
+export interface Me {
+  id: string;
+  name: string;
+  tg: string;
+  role: Role;
 }
 
 export interface BotText {
@@ -231,6 +309,16 @@ export interface NewMarathonState {
   name: string;
   start: string;
   end: string;
+  /** Ссылка на канал отчётов — обязательна: у каждого марафона свой канал. */
+  channelLink: string;
+  /** Копия марафона: откуда переносить темы. */
+  fromId?: string;
+  /** Раскрыта ли инструкция «как создать канал». */
+  guide?: boolean;
+  /** Ошибки показываем после первой попытки создать. */
+  touched?: boolean;
+  /** Последняя проверка ссылки: группа или мёртвая ссылка не дадут создать марафон. */
+  linkCheck?: LinkCheck | null;
   err: string;
 }
 
@@ -260,7 +348,32 @@ export interface BroadcastState {
   selIds?: string[];
 }
 
+/** Что правится в форме: марафон, тема, вопрос, настройки бота, текст бота. */
+export type EditKind = 'marathon' | 'topic' | 'question' | 'bot' | 'text';
+
+/** Плоский снимок значений формы: поле → значение. */
+export type Snapshot = Record<string, string | number | boolean>;
+
+/** Несохранённая правка формы — одна на панель: форма открыта всегда одна. */
+export interface EditState {
+  kind: EditKind;
+  /** Что правится: id марафона, темы, вопроса, ключ текста; у настроек бота — 'bot'. */
+  id: string;
+  /** Значения до правки: по ним считается тело запроса и работает «Отменить». */
+  base: Snapshot;
+  /** Запрос уже ушёл — кнопки заблокированы. */
+  saving: boolean;
+}
+
 export interface AppState {
+  auth: AuthState;
+  me: Me | null;
+  /** Ошибка входа или загрузки — показывается на экране входа. */
+  authError: string | null;
+  /** Идёт загрузка данных марафона: таблицы показывают заглушку. */
+  loading: boolean;
+  /** Марафоны, данные которых уже загружены. */
+  loaded: string[];
   role: Role;
   screen: Screen;
   mid: string | null;
@@ -273,6 +386,8 @@ export interface AppState {
   bot: BotSettings;
   /** Черновик имени бота: null — поле не в режиме правки. */
   botDraft: string | null;
+  /** Несохранённые правки формы: null — сохранять нечего. */
+  edit: EditState | null;
   topicId: string | null;
   topicTab: 'settings' | 'questions';
   qId: string | null;
@@ -290,6 +405,8 @@ export interface AppState {
   textKey: string;
   bc: BroadcastState;
   newM: NewMarathonState | null;
+  /** Живое состояние каналов по id марафона — грузится на странице «Канал отчётов». */
+  channelStatus: Record<string, ChannelStatus>;
   filterTab: MarathonStatus | 'all';
   invite: InviteState | null;
   userQ: string;

@@ -1,33 +1,74 @@
 import type { MarathonStatus, NamazDef, ParticipantStatus, QuestionType, Screen, TzKey } from '../types';
 
 /**
- * Время намазов на 8 ноября 2026, минуты от полуночи по местному времени.
- * Метод ДУМ России (Фаджр 16°, Иша 15°), Аср по ханафитскому мазхабу —
- * как вернул бы Aladhan API (method=14, school=1).
+ * Справочные данные панели.
+ *
+ * Время намазов и список поясов приходят из бэкенда (`GET /api/prayer/presets`)
+ * и кладутся сюда один раз при загрузке: это общие данные только для чтения, а
+ * расчёты окон в экранах синхронные. До загрузки реестр пуст, и панель показывает
+ * заглушку — поэтому `TZ[k]` всюду читается с запасным значением.
  */
 export interface TzInfo {
   city: string;
   utc: string;
   note: string;
-  /** Смещение относительно Бишкека в минутах. */
-  off: number;
+  /** Время намазов на сегодня, минуты от местной полуночи. */
   pt: { fajr: number; sunrise: number; dhuhr: number; asr: number; maghrib: number; isha: number };
 }
 
-export const TZ: Record<TzKey, TzInfo> = {
-  bishkek: { city: 'Бишкек', utc: 'UTC+6', note: 'Чүй, Ысык-Көл, Нарын, Талас', off: 0, pt: { fajr: 379, sunrise: 464, dhuhr: 765, asr: 963, maghrib: 1066, isha: 1146 } },
-  osh: { city: 'Ош', utc: 'UTC+6', note: 'Ош, Жалал-Абад, Баткен', off: 0, pt: { fajr: 384, sunrise: 467, dhuhr: 773, asr: 977, maghrib: 1078, isha: 1155 } },
-  almaty: { city: 'Алматы', utc: 'UTC+5', note: 'Казахстан', off: -60, pt: { fajr: 310, sunrise: 396, dhuhr: 696, asr: 893, maghrib: 996, isha: 1077 } },
-  moscow: { city: 'Москва', utc: 'UTC+3', note: 'Россия, европейская часть', off: -180, pt: { fajr: 356, sunrise: 470, dhuhr: 733, asr: 883, maghrib: 996, isha: 1102 } },
-  istanbul: { city: 'Стамбул', utc: 'UTC+3', note: 'Турция', off: -180, pt: { fajr: 380, sunrise: 463, dhuhr: 768, asr: 971, maghrib: 1072, isha: 1150 } },
-  seoul: { city: 'Сеул', utc: 'UTC+9', note: 'Корея', off: 180, pt: { fajr: 345, sunrise: 424, dhuhr: 736, asr: 948, maghrib: 1047, isha: 1121 } },
-  newyork: { city: 'Нью-Йорк', utc: 'UTC−5', note: 'США, восточное время', off: -660, pt: { fajr: 312, sunrise: 395, dhuhr: 700, asr: 903, maghrib: 1004, isha: 1082 } },
-};
+/** Ключ — зона IANA, как её хранит бот: `Asia/Bishkek`. */
+export const TZ: Record<string, TzInfo> = {};
 
-export const TZ_ORDER: TzKey[] = ['bishkek', 'osh', 'almaty', 'moscow', 'istanbul', 'seoul', 'newyork'];
+/** Порядок поясов в фильтрах и таблицах — как их отдал бэкенд. */
+export const TZ_ORDER: TzKey[] = [];
 
-/** «Сейчас» в прототипе — 09:40 по Бишкеку. */
-export const NOW = 580;
+/**
+ * Пресеты места в том виде, в каком их показывает бот при регистрации.
+ * Отличается от `TZ_ORDER`: Бишкек и Ош — разные кнопки, но одна зона.
+ */
+export const PRESETS: { label: string; tz: string; pt: TzInfo['pt'] }[] = [];
+
+/**
+ * Заполняется из `/api/prayer/presets`. Сами объекты не подменяются, чтобы
+ * ссылки, взятые при импорте модуля, остались валидными.
+ */
+export function setPrayerPresets(presets: { tz: string; city: string; pt: TzInfo['pt'] }[]): void {
+  for (const key of Object.keys(TZ)) delete TZ[key];
+  TZ_ORDER.length = 0;
+  PRESETS.length = 0;
+  for (const p of presets) {
+    PRESETS.push({ label: p.city, tz: p.tz, pt: p.pt });
+    // Несколько городов могут лежать в одной зоне (Бишкек и Ош): в реестре
+    // остаётся первый. Времена здесь зонные и приблизительные — точные окна
+    // участницы считает бэкенд по её координатам.
+    if (TZ[p.tz]) continue;
+    TZ[p.tz] = { city: p.city, utc: utcLabel(p.tz), note: '', pt: p.pt };
+    TZ_ORDER.push(p.tz);
+  }
+}
+
+/** Пояс, который показываем, пока справочник не загружен. */
+export const FALLBACK_TZ = 'Asia/Bishkek';
+
+/**
+ * «UTC+6» для зоны IANA. Считается по текущему смещению, поэтому Нью-Йорк
+ * сам меняется с UTC−4 на UTC−5 при переходе на зимнее время.
+ */
+export function utcLabel(tz: string): string {
+  try {
+    const name = new Intl.DateTimeFormat('en-GB', { timeZone: tz, timeZoneName: 'longOffset' })
+      .formatToParts(new Date())
+      .find((p) => p.type === 'timeZoneName')?.value;
+    if (!name) return tz;
+    const m = /^GMT([+-])(\d{2}):(\d{2})$/.exec(name);
+    if (!m) return 'UTC';
+    const hours = Number(m[2]);
+    const sign = m[1] === '-' ? '−' : '+';
+    return `UTC${sign}${hours}${m[3] === '00' ? '' : ':' + m[3]}`;
+  } catch {
+    return tz;
+  }
+}
 
 /** Фиксированные темы-намазы: одинаковые во всех марафонах, в марафоне их только выбирают. */
 export const NAMAZ: NamazDef[] = [
@@ -36,7 +77,10 @@ export const NAMAZ: NamazDef[] = [
   { id: 't3', emoji: '☀️', nameKg: 'Пешим', nameRu: 'Зухр', s: ['dhuhr', 0], e: ['asr', 0], rule: 'Пешим — до Асра', points: 10, mandatory: true },
   { id: 't4', emoji: '🌤', nameKg: 'Аср', nameRu: 'Аср', s: ['asr', 0], e: ['maghrib', 0], rule: 'Аср — до Шама', points: 10, mandatory: true },
   { id: 't5', emoji: '🌇', nameKg: 'Шам', nameRu: 'Магриб', s: ['maghrib', 0], e: ['isha', 0], rule: 'Шам — до Куптана', points: 10, mandatory: true },
-  { id: 't6', emoji: '🌃', nameKg: 'Куптан', nameRu: 'Иша', s: ['isha', 0], e: ['midnight', 0], rule: 'Куптан — до полуночи', points: 10, mandatory: true },
+  // Окно Куптана идёт до следующего фаджра, а не до полуночи: на северных
+  // широтах летом иша наступает в 23:10 и «до полуночи» оставляло бы меньше часа.
+  // Так же считает и бот — расхождение здесь означало бы неверное превью.
+  { id: 't6', emoji: '🌃', nameKg: 'Куптан', nameRu: 'Иша', s: ['isha', 0], e: ['nextFajr', 0], rule: 'Куптан — до следующего Багымдата', points: 10, mandatory: true },
   {
     id: 't11', emoji: '🕌', nameKg: 'Каза намаз', nameRu: 'Восполнение намазов', s: ['fixed', 300], e: ['fixed', 1380],
     rule: 'весь день, 05:00–23:00 · вопрос «сколько восполнили»', points: 10, mandatory: false,
@@ -84,6 +128,7 @@ export const ICONS: Record<string, string> = {
   journal: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  channel: 'M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16M5 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
 };
 
 /** Экраны вне контекста марафона — при переключении марафона с них не уводит. */
@@ -100,6 +145,7 @@ export const GROUP: Record<Screen, 'all' | 'm' | 'bot' | 'sys'> = {
   broadcasts: 'm',
   analytics: 'm',
   settings: 'm',
+  channel: 'm',
   namaz: 'bot',
   texts: 'bot',
   bot: 'bot',
@@ -122,10 +168,8 @@ export const SCREEN_TITLES: Record<Screen, string> = {
   users: 'Пользователи',
   journal: 'Журнал изменений',
   settings: 'Настройки марафона',
+  channel: 'Канал отчётов',
 };
 
-/** Сегодняшний день прототипа — для «новых сегодня» и записей в журнал. */
-export const TODAY_LABEL = '8 ноя';
-/** День марафона «Үммөттүн кызы» на эту дату. */
-export const DAY_N = 20;
+/** Сколько дней идёт марафон по умолчанию — длина берётся из его дат. */
 export const MARATHON_DAYS = 30;

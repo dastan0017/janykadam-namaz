@@ -119,7 +119,7 @@ export function TopicEditor() {
               <span>
                 <span style={{ fontWeight: 600 }}>Обязательная</span>
                 <br />
-                <span className="hint-sm">Пропуск прерывает серию дней. Окна обязательных тем не должны пересекаться.</span>
+                <span className="hint-sm">Пропуск прерывает серию дней. Окна тем могут пересекаться — отчёт сдаётся по каждой теме отдельно.</span>
               </span>
             </label>
           </section>

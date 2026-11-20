@@ -1,0 +1,62 @@
+{
+  "name": "janykadam-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram-бот марафонов Janykadam и бэкенд админ-панели",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "start:dev": "node --watch dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/db/seed.ts",
+    "import:geonames": "tsx src/scripts/import-geonames.ts",
+    "compare:aladhan": "tsx src/scripts/compare-aladhan.ts",
+    "build:watch": "tsc -p tsconfig.build.json --watch --preserveWatchOutput"
+  },
+  "packageManager": "pnpm@9.15.4",
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/static": "^10.1.10",
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@grammyjs/runner": "^2.0.3",
+    "@nestjs/common": "^11.2.9",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.9",
+    "@nestjs/platform-fastify": "^11.2.9",
+    "@nestjs/swagger": "^11.4.8",
+    "adhan": "^4.4.6",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.8",
+    "geo-tz": "^8.1.11",
+    "grammy": "^1.46.0",
+    "luxon": "^3.7.2",
+    "nestjs-pino": "^5.3.1",
+    "nestjs-zod": "^5.6.0",
+    "pg": "^8.23.1",
+    "pg-boss": "^12.38.1",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11",
+    "@types/luxon": "^3.7.6",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

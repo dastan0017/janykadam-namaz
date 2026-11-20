@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+coverage/
+tmp/
+data/geonames/
+dist/

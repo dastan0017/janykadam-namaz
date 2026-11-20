@@ -1,6 +1,7 @@
 import { ICONS, STATUS } from '../data/constants';
 import { currentMarathon, isCurator, validate } from '../lib/derive';
 import { dateRu } from '../lib/format';
+import { dayCount, dayNumber } from '../lib/time';
 import { useActions, useAppState } from '../store/context';
 import type { Screen } from '../types';
 import { Icon, StatusPill } from './ui';
@@ -8,7 +9,7 @@ import { Icon, StatusPill } from './ui';
 interface NavDef {
   screen: Screen;
   label: string;
-  badge?: number;
+  badge?: number | string;
   tone?: 'neutral' | 'bad' | 'warn';
   tag?: string;
 }
@@ -46,12 +47,15 @@ export function Sidebar() {
   const untranslated = s.texts.filter((t) => !t.kg || !t.ru).length;
   const cur = isCurator(s);
 
+  // Канал не готов — красная отметка, пока марафон ещё идёт или впереди.
+  const channelProblem = !!m && !m.channel.ready && m.status !== 'finished' && m.status !== 'archive';
   const navM: NavDef[] = [
     { screen: 'overview', label: 'Обзор', badge: errs, tone: 'bad' },
     { screen: 'topics', label: 'Темы' },
     { screen: 'participants', label: 'Участницы' },
     { screen: 'broadcasts', label: 'Рассылки' },
     { screen: 'analytics', label: 'Аналитика' },
+    { screen: 'channel', label: 'Канал отчётов', badge: channelProblem ? '!' : undefined, tone: 'bad' },
     { screen: 'settings', label: 'Настройки' },
   ];
   const navBot: NavDef[] = [
@@ -101,7 +105,7 @@ export function Sidebar() {
               </select>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                 {dateRu(m.start)} — {dateRu(m.end)}
-                {m.status === 'running' ? ' · день 20 из 30' : ''}
+                {m.status === 'running' ? ` · день ${dayNumber(m.start)} из ${dayCount(m.start, m.end)}` : ''}
               </div>
             </div>
             <div className="nav-group">

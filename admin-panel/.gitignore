@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Локальные настройки: адрес API и username бота
+.env
+.env.local

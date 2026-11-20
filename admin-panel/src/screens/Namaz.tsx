@@ -1,18 +1,18 @@
 import { LockIcon } from '../components/ui';
-import { ICONS, NAMAZ, TZ, TZ_ORDER } from '../data/constants';
+import { FALLBACK_TZ, ICONS, NAMAZ, PRESETS, utcLabel } from '../data/constants';
 import { currentData } from '../lib/derive';
 import { plural } from '../lib/format';
-import { fmt } from '../lib/time';
+import { dayLabel, fmt, localDate } from '../lib/time';
 import { useAppState } from '../store/context';
 
 const TZ_COLS = 'minmax(170px,1.6fr) repeat(7, minmax(58px,1fr)) 80px';
 const LIB_COLS = 'minmax(160px,1.3fr) minmax(200px,1.6fr) 60px 70px 150px';
 
 const FACTS = [
-  { k: 'Источник', v: 'Aladhan API', note: 'бесплатный, без ключа' },
+  { k: 'Расчёт', v: 'На сервере, пакетом adhan', note: 'в работе бот никуда не ходит' },
   { k: 'Метод', v: 'ДУМ России (№ 14)', note: 'Фаджр 16°, Иша 15°' },
-  { k: 'Аср', v: 'Ханафитский мазхаб', note: 'параметр school=1' },
-  { k: 'Обновление', v: 'Раз в месяц на 30 дней', note: 'хранится на сервере — бот не ждёт API' },
+  { k: 'Аср', v: 'Ханафитский мазхаб', note: 'как school=1 у Aladhan' },
+  { k: 'Координаты', v: 'Место, а не пояс', note: 'Бишкек и Ош расходятся на 5–15 минут' },
 ];
 
 export function Namaz() {
@@ -29,7 +29,7 @@ export function Namaz() {
           <div>
             <div style={{ fontWeight: 700, fontSize: 15, color: '#2e3a1f' }}>Время намазов считается само</div>
             <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--sage-deep)', marginTop: 2 }}>
-              При регистрации участница выбирает часовой пояс (позже может сменить командой /zona). Каждый день бот берёт время намазов для этого места — вручную ничего вводить не нужно.
+              При регистрации участница выбирает место (позже может сменить командой /zona), а пояс выводится из координат. Время намазов бот считает сам — вручную ничего вводить не нужно.
               Темы-намазы и правила их окон одинаковые во всех марафонах и не редактируются.
             </div>
           </div>
@@ -47,7 +47,7 @@ export function Namaz() {
 
       <section className="card-scroll">
         <div style={{ padding: '12px 14px' }}>
-          <div className="h-card">Сегодня, 8 ноября — по местному времени</div>
+          <div className="h-card">Сегодня, {dayLabel(localDate(FALLBACK_TZ))} — по местному времени</div>
           <div className="hint">
             Эти пояса участница видит кнопками при регистрации. Каждый привязан к городу, потому что время намаза зависит от места, а не только от пояса: Бишкек и Ош в одном поясе, но
             расходятся на 5–15 минут.
@@ -64,12 +64,15 @@ export function Namaz() {
           <span>Куптан</span>
           <span style={{ textAlign: 'right' }}>В марафоне</span>
         </div>
-        {TZ_ORDER.map((k) => {
-          const z = TZ[k];
-          const n = d.participants.filter((p) => p.tz === k && p.status !== 'left').length;
+        {PRESETS.map((preset) => {
+          const z = { city: preset.label, utc: utcLabel(preset.tz), pt: preset.pt };
+          // Участниц считаем по месту: у Бишкека и Оша одна зона, но строки разные.
+          const n = d.participants.filter(
+            (p) => p.status !== 'left' && (p.place ? p.place === preset.label : p.tz === preset.tz),
+          ).length;
           return (
             <div
-              key={k}
+              key={preset.label}
               className="nums"
               style={{ display: 'grid', gridTemplateColumns: TZ_COLS, gap: 8, padding: '9px 14px', borderTop: '1px solid var(--line-soft)', fontSize: 13, alignItems: 'center', minWidth: 860 }}
             >
@@ -77,7 +80,7 @@ export function Namaz() {
                 <span style={{ fontWeight: 600, display: 'block' }}>
                   {z.city} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>{z.utc}</span>
                 </span>
-                <span className="hint-sm">{z.note}</span>
+                <span className="hint-sm">{preset.tz}</span>
               </span>
               <span>{fmt(z.pt.fajr - 150)}</span>
               <span>{fmt(z.pt.fajr)}</span>
